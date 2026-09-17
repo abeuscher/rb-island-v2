@@ -50,10 +50,19 @@ for it.
 
 ### Board in Studio
 
-- **Status:** open
+- **Status:** done (Session 004)
 - **Prerequisites:** Rules core: combat, fog, and victory
 - **Success criterion:** The Rojo project syncs a full-size board with the channel and both starting islands into Studio, elevation renders as clearly distinguishable stacked-cube levels, and a scriptable camera frames each player's own territory. No avatars are spawned.
 - **Artifact:** `src/client/Board.luau`, `Camera.luau`, `default.project.json` wiring.
+- **Outcome:** `rojo build` produces a clean place file; `Board.luau` renders one cube per
+  land cell (height and one of 3 shades by elevation) plus a water plate, `Camera.luau`
+  gives an angled top-down scriptable camera bound to a territory with pan/zoom and a Tab
+  toggle between sides, wired through `src/client/init.client.luau` and
+  `src/server/init.server.luau` (`Players.CharacterAutoLoads = false`). User-confirmed
+  visually in Studio. Round 1's real starting state is flat (§3), so `init.client.luau`
+  currently seeds a temporary demo elevation bump for that visual check — the **Planning
+  phase** entry below should remove it once real terrain-editing exists to demonstrate
+  elevation instead.
 
 ### Planning phase
 
