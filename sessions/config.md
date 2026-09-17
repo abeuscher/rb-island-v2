@@ -3,7 +3,7 @@ kit-version: 1
 plan-file: sessions/plan.md
 branch-pattern: session-{NNN}
 verify-step: 
-test-command: 
+test-command: lune run test
 archive-after: 2
 session-types: [feature, housekeeping]
 ---

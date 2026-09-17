@@ -1,0 +1,11 @@
+{
+	"name": "IslandSiege",
+	"tree": {
+		"$className": "DataModel",
+		"ReplicatedStorage": {
+			"Shared": {
+				"$path": "src/shared"
+			}
+		}
+	}
+}
