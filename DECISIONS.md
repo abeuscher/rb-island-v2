@@ -86,6 +86,42 @@ for.
 **Call:** `State.placeStructure` now spends Supply only. Firing is the only place
 `energy_cost` is charged, in `rules.luau`.
 
+## Number of bases per player (Session 003)
+
+§5.1 says "all three of a player's bases," and §14's bot behavior says "place 3 bases
+spread apart," but nothing in `rules.luau`/`state.luau` hardcodes a base count -- a base
+costs 0 Supply and can be placed as many times as there's room for, and Session 002's own
+tests use a single base per player.
+
+**Call:** added `config.NUM_BASES = 3` and had every sim archetype build that many, spread
+across its territory, matching §5.1's literal wording and the future bot's behavior. A
+single-base match (as Session 002's tests use) still works identically -- `checkVictory`
+only ever checks whether the live count is zero, regardless of how many were built.
+
+## Sweep dimension names mapped to actual config paths (Session 003)
+
+§15 names `CANNON_RANGE` and `MORTAR_RANGE` as sweep dimensions, but no such flat keys
+exist in `config.luau` -- only `config.STRUCTURES.cannon.range` and `.mortar.range`.
+
+**Call:** `sim/sweep.luau` accepts `CANNON_RANGE`/`MORTAR_RANGE` as override names and maps
+them to the nested paths. The third pass's "MAX_ROUNDS x the POINTS table" is implemented
+as `MAX_ROUNDS` x a `POINTS_PRESET` choice (`"default"` or `"generatorHeavy"`, which raises
+the generator's destroy/standing points) rather than a full per-value grid over all eight
+`POINTS` entries, which would have been a combinatorial explosion for a first sweep.
+
+## Sim archetypes get a restricted View, not raw MatchState (Session 003)
+
+§15's hard requirement is that an archetype reads only its own belief map and public
+terrain. Passing raw `MatchState` and trusting each archetype not to read
+`state.players[opponent].structures` would make that requirement a convention, not a
+guarantee.
+
+**Call:** `sim/view.luau` builds a `View` carrying only `round`, `board`, `owner`,
+`opponent`, and the owning player's own `resources`/`structures`/`belief`. Every archetype
+and `sim/archetypeKit.luau` helper takes a `View`, never `MatchState` -- there is no field
+on it that reaches the opponent's real structures. `tests/view.spec.luau` pins the View's
+exact key set so this stays true if it's ever extended.
+
 ## `rules.resolveRound`'s signature takes `config` explicitly (Session 002)
 
 §2 writes the signature as `rules.resolveRound(state, commandsA, commandsB)`, but every

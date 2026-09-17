@@ -36,10 +36,17 @@ for it.
 
 ### Simulation harness and first balance sweep
 
-- **Status:** open
+- **Status:** done (Session 003)
 - **Prerequisites:** Rules core: combat, fog, and victory
 - **Success criterion:** A harness runs large batches of scripted matches between five archetype strategies (each reading only its own belief map), producing per-match logs, an aggregate CSV, and the core balance metrics — rounds-to-first-base, match-length distribution, comeback rate, purchase share, cannon block rate, victory-condition distribution, win-rate matrix. A first parameter sweep narrows to a shortlist of candidate configs for later human playtesting.
 - **Artifact:** `sim/harness.luau`, `sim/archetypes/`, `sim/sweep.luau`, sweep output, and a shortlist note.
+- **Outcome:** `lune run sim` (5,000-match round robin) and `lune run sweep` (staged 3-pass
+  sweep) both run from the terminal and produce every metric asked for. The sweep itself
+  found zero surviving configs — a real finding, not a gap: standing points reward
+  structures over terrain investment (one archetype dominates the field regardless of
+  match length), and cannon block rate stays near 0% because a fully-informed scripted
+  agent routes around any ridge it can see. Written up in `sim/output/shortlist.md`; feeds
+  the **Ship polish and balance pass** entry below rather than being resolved here.
 
 ### Board in Studio
 

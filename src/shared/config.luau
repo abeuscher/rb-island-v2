@@ -21,6 +21,9 @@ return {
 	MAX_ROUNDS = 5,
 	INCAPACITATION_GRACE_ROUNDS = 2,
 
+	NUM_BASES = 3,
+	SIM_MATCHES_PER_PAIR = 200,
+
 	UNLOCK_ROUND = {
 		terrain_edit = 2,
 		mortar = 3,
