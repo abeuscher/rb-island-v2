@@ -22,7 +22,7 @@ for it.
 
 ### Rules core: board, terrain, and economy
 
-- **Status:** open
+- **Status:** done (Session 001)
 - **Prerequisites:** none
 - **Success criterion:** The board/territory model, elevation with the smoothness constraint, terrain raise/lower and land reclamation, the resource economy (Supply/Energy), and structure placement/build-time rules are implemented in the pure `src/shared/` layer with zero Roblox API calls, each covered by Lune tests, and `lune run test` passes.
 - **Artifact:** `src/shared/board.luau`, `state.luau`, `economy.luau`, `structures.luau`, `config.luau`, with test coverage.
