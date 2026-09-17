@@ -66,10 +66,21 @@ for it.
 
 ### Planning phase
 
-- **Status:** open
+- **Status:** done (Session 005)
 - **Prerequisites:** Board in Studio
 - **Success criterion:** A player can place and bulldoze structures, edit and reclaim terrain with cost and smoothness validation and clear rejection feedback, assign weapon targets, and ready up against a round clock, all inside the plan-phase UI.
 - **Artifact:** `src/client/UI/` build palette, terrain tools, targeting UI, round clock.
+- **Outcome:** A local-only `PlanController` (`src/client/UI/PlanController.luau`) drives a
+  client-held `MatchState` and calls straight into the existing `state.luau` commands, so
+  cost/territory/smoothness validation and rejection messages come from the rules core
+  unchanged. `BuildPalette.luau`, `RoundClock.luau`, and `StructureView.luau` cover
+  build/bulldoze, terrain edit/reclaim, targeting (validated against enemy territory only —
+  range/line-of-flight needs `flight.luau` and is the next entry's job), and the round
+  clock/ready-up. `Cursor.luau` adds a green/red footprint preview while placing and a
+  crosshair while targeting. `base` is deliberately absent from the palette — it's placed
+  during a setup phase that doesn't exist until **Full match loop and wrapper screens**.
+  `rojo build` clean; `lune run test` green (71/71); user-confirmed in Studio (cursor/
+  crosshair addition pending a follow-up visual check).
 
 ### Resolve phase vs. a dummy opponent
 
