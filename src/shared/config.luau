@@ -18,10 +18,18 @@ return {
 	ENERGY_CAP = 12,
 	STARTING_ENERGY = 4,
 
+	MAX_ROUNDS = 5,
+	INCAPACITATION_GRACE_ROUNDS = 2,
+
 	UNLOCK_ROUND = {
 		terrain_edit = 2,
 		mortar = 3,
 		reclamation = 4,
+	},
+
+	POINTS = {
+		destroy = { base = 100, mortar = 35, generator = 25, cannon = 20 },
+		standing = { base = 50, mortar = 15, generator = 10, cannon = 10 },
 	},
 
 	STRUCTURES = {

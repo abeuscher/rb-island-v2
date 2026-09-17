@@ -5,6 +5,7 @@
 local Board = require("./board")
 local Economy = require("./economy")
 local Structures = require("./structures")
+local Fog = require("./fog")
 
 local State = {}
 
@@ -12,6 +13,10 @@ local function newPlayerState(config)
 	return {
 		resources = Economy.new(config),
 		structures = Structures.new(),
+		belief = Fog.new(),
+		destructionPoints = 0,
+		structuresLost = 0,
+		incapableStreak = 0,
 	}
 end
 
@@ -26,14 +31,23 @@ function State.new(config)
 	}
 end
 
-local function withPlayer(state, owner, playerState)
+-- Merges `fields` onto the existing player state rather than replacing it outright,
+-- so a caller that only touches resources/structures doesn't clobber belief,
+-- score, or incapacitation tracking it never meant to change.
+local function withPlayer(state, owner, fields)
 	local players = table.clone(state.players)
-	players[owner] = playerState
+	local player = table.clone(players[owner])
+	for key, value in pairs(fields) do
+		player[key] = value
+	end
+	players[owner] = player
 
 	local newState = table.clone(state)
 	newState.players = players
 	return newState
 end
+
+State.withPlayer = withPlayer
 
 local function requireUnlocked(config, state, feature)
 	if state.round < config.UNLOCK_ROUND[feature] then
@@ -54,8 +68,9 @@ function State.placeStructure(config, state, owner, typeId, x, y)
 		return state, false, err
 	end
 
-	local cost = { supply = def.supply_cost, energy = def.energy_cost }
-	local newResources, ok2, err2 = Economy.spend(player.resources, cost)
+	-- def.energy_cost is the per-shot firing cost (§8's "Energy N" in each weapon's
+	-- behavior text), not a build cost -- structures only ever cost Supply to build.
+	local newResources, ok2, err2 = Economy.spend(player.resources, { supply = def.supply_cost })
 	if not ok2 then
 		return state, false, err2
 	end

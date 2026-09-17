@@ -29,7 +29,7 @@ for it.
 
 ### Rules core: combat, fog, and victory
 
-- **Status:** open
+- **Status:** done (Session 002)
 - **Prerequisites:** Rules core: board, terrain, and economy
 - **Success criterion:** Line-of-flight math (direct and arcing fire), simultaneous volley resolution, fog reveals with stale belief maps, round-based unlock gates, and all four victory conditions — including simultaneous mutual base elimination — are implemented and tested: line-of-flight exhaustively against hand-worked cases, one test per victory condition. A full scripted match runs end to end in the terminal with a green test suite.
 - **Artifact:** `src/shared/flight.luau`, `rules.luau`, `fog.luau`, tests, and any `DECISIONS.md` entries for ambiguity resolved along the way.

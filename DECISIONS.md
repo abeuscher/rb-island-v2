@@ -34,3 +34,63 @@ commands pending this round."
 
 **Call:** left unimplemented here; belongs to the next session's round-resolution layer
 (`rules.luau`), which validates a full set of simultaneous commands together.
+
+## Line-of-flight beam fraction (Session 002)
+
+§10 says to walk the beam as "a Bresenham line" and interpolate beam height with
+`t = dist(S,C) / dist(S,T)`, but never names the distance metric for `t`.
+
+**Call:** walk the line in evenly-spaced integer steps (`steps = max(|dx|, |dy|)`, the same
+Chebyshev count §10 already uses for range) and set `t = step / steps`. This is exact for
+horizontal, vertical, and 45° shots and a close approximation everywhere else, and it keeps
+the whole beam calculation in the same distance metric as range. Implemented in
+`flight.luau`.
+
+## Points table added to config (Session 002)
+
+§5.4 specifies the full destroy/standing point table but §16's repo layout never added it to
+`config.luau`, and no prior session needed it.
+
+**Call:** added `config.POINTS.destroy` and `config.POINTS.standing`, keyed by structure
+type, exactly matching §5.4's table.
+
+## Rubble as a stale belief-map entry (Session 002)
+
+§18 lists "whether rubble persists on the belief map permanently or decays" as an open
+question.
+
+**Call:** rubble isn't tracked as persistent world state at all -- a reveal simply records
+"rubble" instead of the destroyed structure if the target cell was destroyed this same round,
+the same way a reveal records anything else it currently sees. Once recorded, it decays
+exactly like any other stale plot: only a fresh reveal of that cell changes what's shown. No
+separate rubble-decay rule was needed.
+
+## Mutual simultaneous incapacitation (Session 002)
+
+§5.2 explicitly covers simultaneous mutual base elimination (decided on points) but says
+nothing about both players crossing the incapacitation grace window in the same round.
+
+**Call:** extended the same points-tiebreak resolution to this case, for consistency with the
+base-elimination precedent -- an elimination condition met by both players at once is decided
+on points regardless of which condition it is.
+
+## Structure placement no longer spends Energy (Session 002 fix)
+
+Session 001's `State.placeStructure` spent both `def.supply_cost` and `def.energy_cost` when
+building a structure. §8's table lists Supply as the build cost; "Energy N" appears only in
+each weapon's *behavior* text as its per-shot firing cost. This meant building a cannon or
+mortar silently docked Energy it was never supposed to cost, discovered when this session's
+scripted-match test showed a cannon's owner short on Energy for firing it had clearly paid
+for.
+
+**Call:** `State.placeStructure` now spends Supply only. Firing is the only place
+`energy_cost` is charged, in `rules.luau`.
+
+## `rules.resolveRound`'s signature takes `config` explicitly (Session 002)
+
+§2 writes the signature as `rules.resolveRound(state, commandsA, commandsB)`, but every
+existing `src/shared/` module (`board`, `economy`, `structures`, `state`) takes `config` as an
+explicit first argument rather than importing a config singleton.
+
+**Call:** matched the existing convention: `rules.resolveRound(config, state, commandsA,
+commandsB)`.

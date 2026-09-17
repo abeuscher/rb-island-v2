@@ -111,6 +111,39 @@ function Structures.completeConstruction(config, list)
 	return newList
 end
 
+-- Applies damage to whatever structure occupies (x, y), regardless of footprint size
+-- or construction state -- half-built structures are still standing targets.
+-- Returns (list, hit, destroyed, destroyedStructure); destroyedStructure is the
+-- pre-damage structure so callers can still read its typeId and footprint.
+function Structures.damage(config, list, x, y, amount)
+	local target = Structures.at(config.STRUCTURES, list, x, y)
+	if not target then
+		return list, false, false, nil
+	end
+
+	local newHp = target.hp - amount
+	local newList = {}
+	if newHp > 0 then
+		for _, structure in ipairs(list) do
+			if structure == target then
+				local updated = table.clone(structure)
+				updated.hp = newHp
+				table.insert(newList, updated)
+			else
+				table.insert(newList, structure)
+			end
+		end
+		return newList, true, false, nil
+	end
+
+	for _, structure in ipairs(list) do
+		if structure ~= target then
+			table.insert(newList, structure)
+		end
+	end
+	return newList, true, true, target
+end
+
 function Structures.countLive(list, typeId)
 	local count = 0
 	for _, structure in ipairs(list) do
