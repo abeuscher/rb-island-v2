@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "abeuscher": {
+      "source": {
+        "source": "github",
+        "repo": "abeuscher/llm-session-kit"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "session-kit@abeuscher": true
+  }
+}
