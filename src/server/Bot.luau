@@ -164,9 +164,14 @@ end
 -- so simply having both weapon types on the board is what makes that happen)
 -- -- ported from sim/archetypes/boomer.luau's spend-to-empty loop, since a
 -- real opponent should keep massing weapons all game rather than stop at the
--- small fixed counts the sim's balance-isolating archetypes use.
+-- small fixed counts the sim's balance-isolating archetypes use. Missile
+-- (Session 016) is tried first once unlocked -- the strongest single hit the
+-- bot can currently afford, same "prefer the better weapon" ordering as
+-- mortar-before-cannon. The scout drone stays player-only for now (Session
+-- 016 Open Gate): a recon-only structure needs its own placement-strategy
+-- logic the bot doesn't have yet, not just a slot in this spend loop.
 local function buildWeapons(config, view, reserved, resources, commands)
-	for _, typeId in ipairs({ "mortar", "cannon" }) do
+	for _, typeId in ipairs({ "missile", "mortar", "cannon" }) do
 		local def = config.STRUCTURES[typeId]
 		if view.elapsed >= def.unlock_time then
 			local spots = Kit.candidateCells(config, view, typeId, reserved)

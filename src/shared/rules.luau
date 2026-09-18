@@ -71,7 +71,7 @@ local function applyWeaponDamage(config, def, opponentStructures, impactCell)
 	end
 
 	damageCell(impactCell.x, impactCell.y, def.damage)
-	if def.fire_mode == "arc" then
+	if def.splash then
 		for _, offset in ipairs(ORTHOGONAL_OFFSETS) do
 			damageCell(impactCell.x + offset[1], impactCell.y + offset[2], def.splash.amount)
 		end

@@ -383,21 +383,33 @@ for it.
 
 ### New weapon types: missiles and scout drones
 
-- **Status:** open, scope pending design
+- **Status:** done (Session 016)
 - **Prerequisites:** none — the weapon roster (`config.STRUCTURES`) and fire pipeline
   (`Rules.tick`/`Flight.luau`) are already generic across weapon types, so this can start
   whenever it's scoped.
-- **Success criterion:** not yet defined — needs a design pass before it can become a real
-  entry. Open design questions: what a missile is that a cannon/mortar isn't (range, damage,
-  cooldown, splash, cost, unlock timing, and whether it's direct or arced fire like the
-  existing two); and whether a scout drone is a weapon at all in the existing sense
-  (`fire_mode`, damage) or a non-damaging recon structure that reveals fog on some other
-  mechanic — that distinction changes whether it fits the current `Structures`/`Rules.tick`
-  shape or needs a new one.
-- **Note (raised Session 015):** captured as a roadmap item at the user's request, name only —
-  no stats, mechanics, or bot/sim integration decided. Both the bot's `buildWeapons` roster
-  (`server/Bot.luau`) and the sim's archetype strategies would need updating for a new weapon
-  type once scoped, but that's this entry's own job, not a prerequisite.
+- **Success criterion:** both new types are real, playable `config.STRUCTURES` entries with
+  build-menu entries reusing the existing cost/afford display; `lune run test` passes;
+  user-confirmed live in Studio.
+- **Artifact:** `config.luau` (`missile`/`scout` entries, `POINTS` table additions),
+  `BuildPalette.luau` menu entries, `Bot.luau` (missile only), `Render.luau`/
+  `StructureView.luau`/`Result.luau` display metadata.
+- **Outcome:** Missile is arc fire (unblockable by terrain like the mortar), the longest
+  range and biggest single hit in the roster, no splash, slower cooldown, higher cost, later
+  unlock — a precision long-range role distinct from the mortar's area denial. Scout drone is
+  a non-damaging weapon: reuses the existing target/cooldown/`planShots` pipeline unchanged,
+  just with `damage = 0`, so firing it only ever reveals fog via the pipeline's existing
+  `Fog.applyReveal` call — no new data shape, no `Rules.tick`/`Flight.luau`/`Fog.luau` changes
+  needed. Bot's `buildWeapons` roster picked up the missile (tried first once unlocked); the
+  scout drone stays player-only — it needs a placement-strategy design the bot doesn't have,
+  deliberately deferred rather than bolted on. `sim/` untouched, still owned by "Sim harness
+  rewrite" below. Found and fixed a real bug on read: `applyWeaponDamage` gated splash on
+  `def.fire_mode == "arc"` rather than `def.splash` being set, which only ever worked because
+  the mortar was the only arc weapon so far — the missile (arc, no splash) would have crashed
+  on first fire under the old check. `lune run test`: 87/87 (85 + 2 new, covering the
+  splash-coupling fix and the scout's zero-damage/reveal behavior). `rojo build` clean.
+  User-confirmed live in Studio, alongside the still-outstanding Session 015 confirmation
+  (bot re-adaptation, single-shot combat, build-menu pricing) this session's playtest also
+  covered.
 
 ### Sim harness rewrite
 

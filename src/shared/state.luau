@@ -9,13 +9,21 @@ local Fog = require("./fog")
 
 local State = {}
 
+local function newDestructionPointsByType(config)
+	local byType = {}
+	for typeId in pairs(config.STRUCTURES) do
+		byType[typeId] = 0
+	end
+	return byType
+end
+
 local function newPlayerState(config)
 	return {
 		resources = Economy.new(config),
 		structures = Structures.new(),
 		belief = Fog.new(),
 		destructionPoints = 0,
-		destructionPointsByType = { base = 0, generator = 0, cannon = 0, mortar = 0 },
+		destructionPointsByType = newDestructionPointsByType(config),
 		revealPoints = 0,
 		hitPoints = 0,
 		structuresLost = 0,

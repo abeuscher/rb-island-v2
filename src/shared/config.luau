@@ -43,14 +43,14 @@ return {
 	},
 
 	POINTS = {
-		destroy = { base = 100, mortar = 35, generator = 25, cannon = 20 },
-		standing = { base = 50, mortar = 15, generator = 10, cannon = 10 },
+		destroy = { base = 100, mortar = 35, generator = 25, cannon = 20, missile = 45, scout = 15 },
+		standing = { base = 50, mortar = 15, generator = 10, cannon = 10, missile = 20, scout = 8 },
 		-- Scouting and landing damage are worth something on their own, not just
 		-- the kill -- otherwise the only winning move is turtling structures to
 		-- the final whistle. Roughly 20%/10% of a kill's value; a guess like every
 		-- other POINTS entry, pending a real balance pass (§15/§18).
-		reveal = { base = 20, mortar = 7, generator = 5, cannon = 4 },
-		hit = { base = 10, mortar = 4, generator = 3, cannon = 2 },
+		reveal = { base = 20, mortar = 7, generator = 5, cannon = 4, missile = 9, scout = 3 },
+		hit = { base = 10, mortar = 4, generator = 3, cannon = 2, missile = 5, scout = 1 },
 	},
 
 	STRUCTURES = {
@@ -115,6 +115,46 @@ return {
 			splash = { amount = 6, pattern = "orthogonal" },
 			reveal_mode = "impact",
 			unlock_time = 40,
+		},
+		-- Long-range arc sniper (Session 016): arcs over terrain like the mortar,
+		-- but the longest range and biggest single hit in the roster, with no
+		-- splash and a slower cooldown -- precision reach, not area denial.
+		-- Placeholder numbers pending a real balance pass (§18), same as every
+		-- other weapon's.
+		missile = {
+			id = "missile",
+			display_name = "Missile",
+			supply_cost = 26,
+			energy_cost = 5,
+			hp = 5,
+			footprint = 1,
+			fire_mode = "arc",
+			range = 44,
+			elevation_range_bonus = 0,
+			damage = 24,
+			cooldown_seconds = 12,
+			splash = nil,
+			reveal_mode = "impact",
+			unlock_time = 80,
+		},
+		-- Non-damaging recon weapon (Session 016): fires like any other weapon --
+		-- targeted, cooldown-gated, single-shot -- but deals 0 damage, so its only
+		-- effect is the reveal Fog.applyReveal already does for every shot.
+		scout = {
+			id = "scout",
+			display_name = "Scout Drone",
+			supply_cost = 12,
+			energy_cost = 1,
+			hp = 3,
+			footprint = 1,
+			fire_mode = "scout",
+			range = 24,
+			elevation_range_bonus = 0,
+			damage = 0,
+			cooldown_seconds = 8,
+			splash = nil,
+			reveal_mode = "impact",
+			unlock_time = 20,
 		},
 	},
 }

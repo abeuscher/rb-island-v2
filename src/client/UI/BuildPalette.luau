@@ -21,6 +21,8 @@ local TOOLS_ROUNDS = {
 	{ id = "place:generator", label = "Build Generator", typeId = "generator" },
 	{ id = "place:cannon", label = "Build Cannon", typeId = "cannon" },
 	{ id = "place:mortar", label = "Build Mortar", typeId = "mortar" },
+	{ id = "place:missile", label = "Build Missile", typeId = "missile" },
+	{ id = "place:scout", label = "Build Scout Drone", typeId = "scout" },
 	{ id = "bulldoze", label = "Bulldoze" },
 	{ id = "raise", label = "Raise Terrain" },
 	{ id = "lower", label = "Lower Terrain" },

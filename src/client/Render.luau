@@ -22,18 +22,23 @@ local STRUCTURE_COLORS = {
 	generator = Color3.fromRGB(224, 200, 40),
 	cannon = Color3.fromRGB(180, 60, 50),
 	mortar = Color3.fromRGB(120, 70, 170),
+	missile = Color3.fromRGB(210, 90, 40),
+	scout = Color3.fromRGB(90, 200, 210),
 }
 local GLYPHS = {
 	base = "\u{2302}",
 	generator = "\u{26A1}",
 	cannon = "\u{25B2}",
 	mortar = "\u{25D3}",
+	missile = "\u{2191}",
+	scout = "\u{25C9}",
 }
 local UNKNOWN_COLOR = Color3.fromRGB(90, 90, 90)
 local RUBBLE_COLOR = Color3.fromRGB(60, 55, 50)
 local PROJECTILE_COLORS = {
 	direct = Color3.fromRGB(250, 220, 120),
 	arc = Color3.fromRGB(250, 160, 90),
+	scout = Color3.fromRGB(150, 220, 230),
 }
 
 local function cellKey(x, y)

@@ -8,13 +8,18 @@ local function withBase(x, y)
 	return { typeId = "base", x = x, y = y, hp = config.STRUCTURES.base.hp, underConstruction = false }
 end
 
--- Shrinks build time and cannon cooldown to one tick each so combat tests don't
--- need dozens of Rules.tick calls to get a weapon built and firing repeatedly.
+-- Shrinks build time and cannon/missile/scout cooldown to one tick each so
+-- combat tests don't need dozens of Rules.tick calls to get a weapon built and
+-- firing repeatedly.
 local function fastConfig()
 	local c = table.clone(config)
 	c.STRUCTURES = table.clone(config.STRUCTURES)
 	c.STRUCTURES.cannon = table.clone(config.STRUCTURES.cannon)
 	c.STRUCTURES.cannon.cooldown_seconds = c.TICK_SECONDS
+	c.STRUCTURES.missile = table.clone(config.STRUCTURES.missile)
+	c.STRUCTURES.missile.cooldown_seconds = c.TICK_SECONDS
+	c.STRUCTURES.scout = table.clone(config.STRUCTURES.scout)
+	c.STRUCTURES.scout.cooldown_seconds = c.TICK_SECONDS
 	c.BUILD_SECONDS = c.TICK_SECONDS
 	return c
 end
@@ -269,4 +274,54 @@ t.test("a full scripted match with autoFire on: target once, let it fire on its 
 	t.expectEqual(victory.winner, "A")
 	t.expectEqual(#current.players.B.structures, 0)
 	t.expectEqual(#current.players.A.structures, 2) -- base + cannon, both untouched
+end)
+
+t.test("the missile is arc fire (unblockable by terrain) with no splash: only its impact cell takes damage", function()
+	local cfg = fastConfig()
+	local state = State.new(cfg)
+	state.elapsed = cfg.STRUCTURES.missile.unlock_time
+	state = State.withPlayer(state, "A", { structures = { withBase(6, 7) }, resources = { supply = 100, energy = 10 } })
+	state = State.withPlayer(state, "B", {
+		structures = {
+			withBase(30, 10),
+			{ typeId = "generator", x = 24, y = 10, hp = cfg.STRUCTURES.generator.hp, underConstruction = false },
+		},
+	})
+
+	local afterPlace = Rules.applyCommand(cfg, state, "A", { type = "place", typeId = "missile", x = 17, y = 10 })
+	local afterTarget = Rules.applyCommand(cfg, afterPlace, "A", { type = "target", x = 17, y = 10, targetX = 24, targetY = 10 })
+
+	local warmedUp = advanceTicks(cfg, afterTarget, 1)
+	local newState = Rules.tick(cfg, warmedUp)
+
+	t.expectEqual(newState.players.A.shotsFired, 1)
+	t.expectEqual(newState.players.A.destructionPoints, config.POINTS.destroy.generator) -- one-hit kill on the impact cell
+	t.expectEqual(#newState.players.B.structures, 1) -- generator destroyed, base untouched by splash
+end)
+
+t.test("the scout drone deals no damage but still reveals what it targets, like any other shot", function()
+	local cfg = fastConfig()
+	local state = State.new(cfg)
+	state.elapsed = cfg.STRUCTURES.scout.unlock_time
+	state = State.withPlayer(state, "A", { structures = { withBase(6, 7) }, resources = { supply = 100, energy = 10 } })
+	state = State.withPlayer(state, "B", {
+		-- Generator sits well clear of the base's own footprint (§ below) so the
+		-- drone's impact+neighbors reveal only ever touches the generator's single
+		-- cell, not a second belief cell belonging to the same structure.
+		structures = {
+			withBase(30, 10),
+			{ typeId = "generator", x = 24, y = 10, hp = cfg.STRUCTURES.generator.hp, underConstruction = false },
+		},
+	})
+
+	local afterPlace = Rules.applyCommand(cfg, state, "A", { type = "place", typeId = "scout", x = 17, y = 10 })
+	local afterTarget = Rules.applyCommand(cfg, afterPlace, "A", { type = "target", x = 17, y = 10, targetX = 24, targetY = 10 })
+
+	local warmedUp = advanceTicks(cfg, afterTarget, 1)
+	local newState = Rules.tick(cfg, warmedUp)
+
+	t.expectEqual(newState.players.A.shotsFired, 1)
+	t.expectEqual(newState.players.B.structures[2].hp, cfg.STRUCTURES.generator.hp) -- undamaged
+	t.expectEqual(#newState.players.B.structures, 2) -- nothing destroyed
+	t.expectEqual(newState.players.A.revealPoints, config.POINTS.reveal.generator)
 end)

@@ -13,8 +13,15 @@
 
 local Result = {}
 
-local STRUCTURE_TYPES = { "base", "generator", "cannon", "mortar" }
-local STRUCTURE_LABELS = { base = "Base", generator = "Generator", cannon = "Cannon", mortar = "Mortar" }
+local STRUCTURE_TYPES = { "base", "generator", "cannon", "mortar", "missile", "scout" }
+local STRUCTURE_LABELS = {
+	base = "Base",
+	generator = "Generator",
+	cannon = "Cannon",
+	mortar = "Mortar",
+	missile = "Missile",
+	scout = "Scout Drone",
+}
 
 -- "incapacitation" is the one condition whose plain-language description
 -- depends on which side it actually happened to -- base_elimination and
