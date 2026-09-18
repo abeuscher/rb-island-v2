@@ -1,12 +1,16 @@
--- Owns the match wrapper (§6): the Intro/Settings/Result screens, mounted once,
--- and the session state machine around them (intro -> setup -> rounds -> result
--- -> intro). Each Start Game or Restart mounts a fresh PlanUI (board, HUD, and
--- PlanController) and tears the previous one down, so neither ever needs a
--- rejoin -- there's nothing to "rejoin" locally in the first place, but this is
--- also the shape server authority will need to slot into later (§12).
+-- Owns the match wrapper (§6): the Intro/Settings/Result screens, mounted
+-- once, and the session flow around them. Two ways into a match now (Session
+-- 008): "Start Game" queues on the server and waits for a second real Studio
+-- client to pair with (§12); "Practice vs. Dummy" mounts the old local-only
+-- flow instantly, no server round trip needed. Restart re-enters whichever
+-- of those the match that just ended came from. Each mount is a fresh PlanUI
+-- (board, HUD, and controller) and the previous one is torn down first, so
+-- neither path ever needs a rejoin.
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Remotes = require(ReplicatedStorage.Shared.remotes)
 local PlanUI = require(script.Parent)
 local Intro = require(script.Parent.Screens.Intro)
 local Settings = require(script.Parent.Screens.Settings)
@@ -15,8 +19,10 @@ local Result = require(script.Parent.Screens.Result)
 
 local MatchController = {}
 
-function MatchController.start(owner)
+function MatchController.start()
 	local player = Players.LocalPlayer
+	local remotes = Remotes.get()
+
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "MatchWrapperUI"
 	screenGui.ResetOnSpawn = false
@@ -24,7 +30,8 @@ function MatchController.start(owner)
 	screenGui.Parent = player:WaitForChild("PlayerGui")
 
 	local activeMatch = nil
-	local startMatch
+	local lastMode = nil
+	local mountOnline, mountPractice, queueForMatch
 
 	local function teardownMatch()
 		if activeMatch then
@@ -36,7 +43,10 @@ function MatchController.start(owner)
 	local settingsScreen
 	local intro = Intro.mount(screenGui, {
 		onStart = function()
-			startMatch()
+			queueForMatch()
+		end,
+		onPractice = function()
+			mountPractice()
 		end,
 		onSettings = function()
 			settingsScreen.show()
@@ -46,22 +56,52 @@ function MatchController.start(owner)
 	local result = Result.mount(screenGui, {
 		onRestart = function()
 			result.hide()
-			startMatch()
+			if lastMode == "practice" then
+				mountPractice()
+			else
+				queueForMatch()
+			end
 		end,
 	})
 
-	startMatch = function()
+	queueForMatch = function()
+		intro.show()
+		intro.setWaiting(true)
+		remotes.Command:FireServer({ type = "queueForMatch" })
+	end
+
+	mountOnline = function(owner)
 		teardownMatch()
 		intro.hide()
+		intro.setWaiting(false)
 		result.hide()
+		lastMode = "online"
 
-		local handle = PlanUI.mount(owner)
-		handle.controller:onMatchEnd(function(victory, finalState)
+		local handle = PlanUI.mount(owner, "online", remotes)
+		handle.controller:onMatchEnd(function(victory, summary)
 			teardownMatch()
-			result.show(victory, finalState, handle.controller.config, owner, handle.controller.enemy)
+			result.show(victory, summary, owner)
 		end)
 		activeMatch = handle
 	end
+
+	mountPractice = function()
+		teardownMatch()
+		intro.hide()
+		result.hide()
+		lastMode = "practice"
+
+		local handle = PlanUI.mount("A", "practice", remotes)
+		handle.controller:onMatchEnd(function(victory, summary)
+			teardownMatch()
+			result.show(victory, summary, handle.controller.owner)
+		end)
+		activeMatch = handle
+	end
+
+	remotes.MatchFound.OnClientEvent:Connect(function(payload)
+		mountOnline(payload.owner)
+	end)
 end
 
 return MatchController

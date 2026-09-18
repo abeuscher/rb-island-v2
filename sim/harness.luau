@@ -4,7 +4,7 @@
 
 local State = require("../src/shared/state")
 local Rules = require("../src/shared/rules")
-local View = require("./view")
+local View = require("../src/shared/view")
 
 local Harness = {}
 

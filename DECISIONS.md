@@ -130,3 +130,49 @@ explicit first argument rather than importing a config singleton.
 
 **Call:** matched the existing convention: `rules.resolveRound(config, state, commandsA,
 commandsB)`.
+
+## An incoming shot reveals its own firing weapon's cell (Session 008)
+
+§12(f)'s exploit check reads literally as "no unrevealed enemy structure appears in
+either client's Instance tree or remote payloads it receives." §13 separately calls
+Resolve-phase feedback "the game's best moment" and specifically wants both players'
+volleys visibly in the air at once. Taken completely literally, those two requirements
+conflict: animating an incoming enemy shot means telling the target's client exactly
+which cell it came from, which is the real position of a structure they may never have
+scouted.
+
+**Call:** treated firing as its own reveal, muzzle-flash-is-visible, scoped to only the
+weapons that actually fired this round -- a structure that never fired is never sent to
+the opponent's client in any form. This was already the de facto behavior of the
+single-player dummy in Sessions 006-007 (its cannon's position was always implicitly
+"known" for animation purposes); Session 008's `src/shared/resolveView.luau` makes it
+the explicit, tested contract for real two-player play. It is not added to the target's
+belief map -- the animation is transient and the cell reverts to "unknown" on the next
+full board redraw, same as the dummy's behavior before it. If this reads as too
+permissive once played, `resolveView.luau` is the one place to tighten it (e.g. redact
+`shot.origin` for shots the belief map wouldn't otherwise justify revealing).
+
+## Client replication reuses the sim's View, not a new shape (Session 008)
+
+The sim harness already had exactly the guarantee real client replication needs:
+`sim/view.luau`'s `View.new(state, owner)` hands back round/board/owner/opponent and
+only the calling player's own resources/structures/belief, with `tests/view.spec.luau`
+pinning its key set so it can't quietly grow a leak. §12 asks for the identical
+guarantee over the network.
+
+**Call:** promoted `sim/view.luau` to `src/shared/view.luau` rather than writing a
+second, server-specific redaction module. `self` was extended to the owning player's
+*entire* player-state table (adding the score/stat fields `finalScore`-adjacent code
+needs) rather than a hand-picked subset -- still only ever the owning player's own
+fields, so the existing guarantee holds, and it can't drift out of sync with
+`state.luau` the way a hand-picked field list would. `sim/harness.luau` requires the
+same module unchanged.
+
+## A round ends on mutual ready-up or the clock, whichever comes first (Session 008)
+
+§4 specifies a round clock but was written with one player in mind; it doesn't say
+whether two real players can end a round early by mutual agreement.
+
+**Call:** either the clock reaches zero or both players press Ready -- server-tracked
+per round in `server/MatchService.luau`. A single early Ready just marks that player
+waiting; it doesn't shorten the other player's turn unilaterally.

@@ -223,7 +223,7 @@ function Render.mount(effectsFolder, enemyFolder, controller)
 	local function renderEnemyBoard()
 		enemyFolder:ClearAllChildren()
 		local board = controller.state.board
-		local belief = controller.state.players[controller.owner].belief
+		local belief = controller.state.self.belief
 
 		for x = 1, board.width do
 			for y = 1, board.height do

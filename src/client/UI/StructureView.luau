@@ -64,7 +64,7 @@ function StructureView.render(parent, controller)
 	local board = controller.state.board
 	local studsPerCell = config.STUDS_PER_CELL
 
-	for _, structure in ipairs(controller.state.players[controller.owner].structures) do
+	for _, structure in ipairs(controller.state.self.structures) do
 		local def = config.STRUCTURES[structure.typeId]
 		local elevation = Board.elevationAt(board, structure.x, structure.y)
 		local centerX, centerZ = structureCenter(config, structure.x, structure.y, def.footprint)

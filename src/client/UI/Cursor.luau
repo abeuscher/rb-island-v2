@@ -93,7 +93,7 @@ function Cursor.mount(cursorFolder, boardFolder, controller, Input)
 				local ok = Structures.canPlace(
 					config,
 					controller.state.board,
-					controller.state.players[controller.owner].structures,
+					controller.state.self.structures,
 					controller.owner,
 					typeId,
 					x,

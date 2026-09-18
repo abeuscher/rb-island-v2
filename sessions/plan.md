@@ -127,10 +127,23 @@ for it.
 
 ### Real two-player networking
 
-- **Status:** open
+- **Status:** done (Session 008)
 - **Prerequisites:** Full match loop and wrapper screens
 - **Success criterion:** Two Studio clients can matchmake, complete setup, and play a full match against each other with the server holding all authoritative state — enemy structures never exist client-side before being revealed — and an exploit check confirms no unrevealed enemy structure appears in either client's Instance tree or remote payloads.
 - **Artifact:** `server/Replication.luau`, `CommandHandler.luau`, rate-limited remotes.
+- **Outcome:** `server/MatchService.luau` holds the one authoritative `MatchState` per
+  match and runs the round loop (setup → plan → resolve → result) through the same pure
+  `State.*`/`Rules.resolveRound` functions the old client called directly.
+  `server/CommandHandler.luau` matchmakes a two-player queue and rate-limits the
+  `Command` remote; `server/Replication.luau` shapes and sends every push. A client only
+  ever receives `src/shared/view.luau`'s `View` (promoted from the sim harness, which
+  already had the same "own state only" guarantee) plus a per-round animation payload
+  (`src/shared/resolveView.luau`) scoped to weapons that actually fired. `PlanController`
+  is now a thin server-driven view; the old local-only flow survives unchanged as
+  `PracticeController` (an explicit "Practice vs. Dummy" option on the Intro screen,
+  alongside "Start Game"). `rojo build` clean; `lune run test` green (80/80). User-
+  confirmed live with two real Studio clients: matchmaking, setup, and a full match all
+  worked end to end.
 
 ### Bot opponent
 

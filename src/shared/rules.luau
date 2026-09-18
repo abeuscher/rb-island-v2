@@ -201,6 +201,47 @@ function Rules.finalScore(config, playerState)
 	return playerState.destructionPoints + standingPoints(config, playerState) + playerState.revealPoints + playerState.hitPoints
 end
 
+-- The Result screen's aggregate breakdown (§6.3), for either player -- counts
+-- and point totals only, never the raw `structures`/`belief` a playerState
+-- otherwise carries. Session 007's local Result screen read those directly
+-- off `finalState.players[enemy]` because everything was still one client's
+-- local state; Session 008's server-authoritative version can't do that for
+-- the opponent's column without handing the client the opponent's real
+-- structure positions in the same remote payload that ends the match (§12).
+function Rules.summary(config, playerState)
+	local standingPointsByType = {}
+	local structuresStanding = 0
+	for typeId in pairs(config.STRUCTURES) do
+		standingPointsByType[typeId] = 0
+	end
+	for _, structure in ipairs(playerState.structures) do
+		if not structure.underConstruction then
+			standingPointsByType[structure.typeId] += config.POINTS.standing[structure.typeId]
+			structuresStanding += 1
+		end
+	end
+
+	local cellsRevealed = 0
+	for _ in pairs(playerState.belief) do
+		cellsRevealed += 1
+	end
+
+	return {
+		finalScore = Rules.finalScore(config, playerState),
+		destructionPointsByType = playerState.destructionPointsByType,
+		standingPointsByType = standingPointsByType,
+		revealPoints = playerState.revealPoints,
+		hitPoints = playerState.hitPoints,
+		structuresBuilt = playerState.structuresBuilt,
+		structuresLost = playerState.structuresLost,
+		structuresStanding = structuresStanding,
+		shotsFired = playerState.shotsFired,
+		shotsHit = playerState.shotsHit,
+		shotsBlocked = playerState.shotsBlocked,
+		cellsRevealed = cellsRevealed,
+	}
+end
+
 -- Points for newly sighting a live enemy structure -- a cell that wasn't known
 -- to hold one (never revealed, revealed as empty/rubble, or last seen mid-
 -- construction) and now is. Compares the whole belief map before/after this

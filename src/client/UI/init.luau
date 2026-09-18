@@ -1,8 +1,11 @@
 -- Mounts one match's board/HUD: setup, build palette, terrain tools, targeting
--- list, and round clock, wired to a local PlanController. See Session 005's
--- brief for why this is local-only rather than server-authoritative. Owned by
--- MatchController, which mounts a fresh one per match (Start Game / Restart)
--- and tears the old one down via the handle this returns.
+-- list, and round clock, wired to either a real server-authoritative
+-- PlanController ("online") or a local offline PracticeController
+-- ("practice") -- both expose the same controller surface (§12's `View`-
+-- shaped `state`, `onChange`/`onResolve`/`onMatchEnd`/`onTick`, etc.), so
+-- everything below is blind to which one is driving it. Owned by
+-- MatchController, which mounts a fresh one per match (Start Game / Practice
+-- / Restart) and tears the old one down via the handle this returns.
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -10,9 +13,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.config)
 local ClientBoard = require(script.Parent.Board)
+local ClientCamera = require(script.Parent.Camera)
 local Input = require(script.Parent.Input)
 local Render = require(script.Parent.Render)
 local PlanController = require(script.PlanController)
+local PracticeController = require(script.PracticeController)
 local BuildPalette = require(script.BuildPalette)
 local RoundClock = require(script.RoundClock)
 local StructureView = require(script.StructureView)
@@ -20,9 +25,12 @@ local Cursor = require(script.Cursor)
 
 local PlanUI = {}
 
-function PlanUI.mount(owner)
+-- `mode` is "online" (real match, needs `remotes`) or "practice" (local
+-- dummy match, `remotes` unused).
+function PlanUI.mount(owner, mode, remotes)
 	local player = Players.LocalPlayer
-	local controller = PlanController.new(Config, owner)
+	local controller = (mode == "online") and PlanController.new(Config, owner, remotes) or PracticeController.new(Config, owner)
+	local cameraHandle = ClientCamera.start(owner)
 
 	local worldFolder = Instance.new("Folder")
 	worldFolder.Name = "Match"
@@ -101,6 +109,7 @@ function PlanUI.mount(owner)
 		controller:stopClock()
 		inputConnection:Disconnect()
 		cursorHandle.stop()
+		cameraHandle.stop()
 		screenGui:Destroy()
 		worldFolder:Destroy()
 	end

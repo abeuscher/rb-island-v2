@@ -1,12 +1,14 @@
 local t = require("./testkit")
 local config = require("../src/shared/config")
 local State = require("../src/shared/state")
-local View = require("../sim/view")
+local View = require("../src/shared/view")
 
 -- §15's hard requirement: an archetype reads only its own belief map, plus
--- public terrain, never the opponent's true structure state. This is
--- enforced structurally by never putting anything else on the view -- these
--- tests exist so that requirement stays enforced if the view ever grows.
+-- public terrain, never the opponent's true structure state. §12 reuses the
+-- same guarantee for a real client over the network (Session 008). This is
+-- enforced structurally by never putting the opponent's player state anywhere
+-- on the view -- these tests exist so that requirement stays enforced if the
+-- view ever grows.
 
 t.test("a view only ever carries round, board, owner, opponent, and self", function()
 	local state = State.new(config)
@@ -20,7 +22,7 @@ t.test("a view only ever carries round, board, owner, opponent, and self", funct
 	t.expectEqual(table.concat(keys, ","), "board,opponent,owner,round,self")
 end)
 
-t.test("a view exposes only the owner's own resources, structures, and belief", function()
+t.test("a view exposes the owner's own resources, structures, and belief -- never the opponent's", function()
 	local state = State.new(config)
 	state = State.withPlayer(state, "A", { structures = { { typeId = "base", x = 6, y = 7, hp = 40, underConstruction = false } } })
 	state = State.withPlayer(state, "B", { structures = { { typeId = "base", x = 24, y = 7, hp = 40, underConstruction = false } } })

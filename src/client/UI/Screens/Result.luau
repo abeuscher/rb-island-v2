@@ -1,9 +1,15 @@
 -- Result screen (§6.3): shown on any match end. Declares the winner and which
 -- condition ended the match in plain language, then a side-by-side itemized
 -- breakdown for both players, then Restart.
-
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Rules = require(ReplicatedStorage.Shared.rules)
+--
+-- Takes a `summary` pair (`{ own, opponent }`, each a src/shared/rules.luau
+-- `Rules.summary(...)` table -- counts and point totals only) rather than raw
+-- MatchState. Session 007's local match could just read `finalState.players[
+-- enemy]` directly; Session 008's server-authoritative match can't hand the
+-- client the opponent's real structures/belief in the same payload that ends
+-- the match without breaking §12's exploit check, so the server (or, for
+-- local practice matches, the controller itself) computes the breakdown
+-- instead of this screen reading it off raw player state.
 
 local Result = {}
 
@@ -15,30 +21,6 @@ local CONDITION_TEXT = {
 	incapacitation = "Opponent incapacitated",
 	round_limit = "Round limit reached",
 }
-
--- Standing points aren't tracked incrementally (only destruction points are,
--- since they're events) -- final structures list is a small, static snapshot at
--- match end, so it's cheapest to just total it here.
-local function standingPointsByType(config, playerState)
-	local points = {}
-	for _, typeId in ipairs(STRUCTURE_TYPES) do
-		points[typeId] = 0
-	end
-	for _, structure in ipairs(playerState.structures) do
-		if not structure.underConstruction then
-			points[structure.typeId] += config.POINTS.standing[structure.typeId]
-		end
-	end
-	return points
-end
-
-local function revealedCellCount(playerState)
-	local count = 0
-	for _ in pairs(playerState.belief) do
-		count += 1
-	end
-	return count
-end
 
 local function makeLabel(text, order, parent, bold, size)
 	local label = Instance.new("TextLabel")
@@ -55,7 +37,7 @@ local function makeLabel(text, order, parent, bold, size)
 	return label
 end
 
-local function buildColumn(parent, order, heading, config, playerState)
+local function buildColumn(parent, order, heading, summary)
 	local column = Instance.new("Frame")
 	column.Name = heading
 	column.Size = UDim2.new(0.48, 0, 1, 0)
@@ -75,32 +57,31 @@ local function buildColumn(parent, order, heading, config, playerState)
 	end
 
 	line(heading, true, 22)
-	line(string.format("Final score: %d", Rules.finalScore(config, playerState)))
+	line(string.format("Final score: %d", summary.finalScore))
 
 	line("Destruction points:", true)
 	for _, typeId in ipairs(STRUCTURE_TYPES) do
-		line(string.format("  %s: %d", STRUCTURE_LABELS[typeId], playerState.destructionPointsByType[typeId]))
+		line(string.format("  %s: %d", STRUCTURE_LABELS[typeId], summary.destructionPointsByType[typeId]))
 	end
 
-	local standing = standingPointsByType(config, playerState)
 	line("Standing points:", true)
 	for _, typeId in ipairs(STRUCTURE_TYPES) do
-		line(string.format("  %s: %d", STRUCTURE_LABELS[typeId], standing[typeId]))
+		line(string.format("  %s: %d", STRUCTURE_LABELS[typeId], summary.standingPointsByType[typeId]))
 	end
 
-	line(string.format("Reveal points: %d", playerState.revealPoints))
-	line(string.format("Hit points: %d", playerState.hitPoints))
-	line(string.format("Structures built: %d", playerState.structuresBuilt))
-	line(string.format("Structures lost: %d", playerState.structuresLost))
-	line(string.format("Structures standing: %d", #playerState.structures))
-	line(string.format("Shots fired: %d", playerState.shotsFired))
-	line(string.format("Shots that hit: %d", playerState.shotsHit))
-	line(string.format("Shots blocked by terrain: %d", playerState.shotsBlocked))
-	line(string.format("Cells revealed: %d", revealedCellCount(playerState)))
+	line(string.format("Reveal points: %d", summary.revealPoints))
+	line(string.format("Hit points: %d", summary.hitPoints))
+	line(string.format("Structures built: %d", summary.structuresBuilt))
+	line(string.format("Structures lost: %d", summary.structuresLost))
+	line(string.format("Structures standing: %d", summary.structuresStanding))
+	line(string.format("Shots fired: %d", summary.shotsFired))
+	line(string.format("Shots that hit: %d", summary.shotsHit))
+	line(string.format("Shots blocked by terrain: %d", summary.shotsBlocked))
+	line(string.format("Cells revealed: %d", summary.cellsRevealed))
 end
 
--- `handlers.onRestart()`. Returns a handle with `show(victory, finalState,
--- config, owner, enemy)` / `hide()`.
+-- `handlers.onRestart()`. Returns a handle with `show(victory, summary,
+-- owner)` / `hide()`.
 function Result.mount(parent, handlers)
 	local overlay = Instance.new("Frame")
 	overlay.Name = "ResultOverlay"
@@ -167,7 +148,7 @@ function Result.mount(parent, handlers)
 		end
 	end
 
-	local function show(victory, finalState, config, owner, enemy)
+	local function show(victory, summary, owner)
 		local winnerText
 		if victory.winner == nil then
 			winnerText = "Draw"
@@ -180,8 +161,8 @@ function Result.mount(parent, handlers)
 		subheading.Text = CONDITION_TEXT[victory.condition] or victory.condition
 
 		clearColumns()
-		buildColumn(breakdown, 1, "You", config, finalState.players[owner])
-		buildColumn(breakdown, 2, "Opponent", config, finalState.players[enemy])
+		buildColumn(breakdown, 1, "You", summary.own)
+		buildColumn(breakdown, 2, "Opponent", summary.opponent)
 
 		overlay.Visible = true
 	end
