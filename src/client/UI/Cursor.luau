@@ -98,7 +98,7 @@ function Cursor.mount(cursorFolder, boardFolder, controller, Input)
 					typeId,
 					x,
 					y,
-					controller.state.round
+					controller.state.elapsed
 				)
 				previewPart.Size =
 					Vector3.new(def.footprint * config.STUDS_PER_CELL, 0.3, def.footprint * config.STUDS_PER_CELL)

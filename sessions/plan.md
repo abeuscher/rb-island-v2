@@ -217,6 +217,40 @@ for it.
   exist client-side before being revealed — §12's guarantee is unaffected by this rework).
 - **Artifact:** `server/MatchService.luau`, `server/Replication.luau` (push shape for a
   continuous tick instead of a per-round batch), `server/CommandHandler.luau` as needed.
+- **Outcome:** Phase machine is `setup → live → result`. `live` runs `Rules.tick` on a
+  recurring `task.spawn`/`task.wait(TICK_SECONDS)` loop; every command applies immediately
+  via a new `Rules.applyCommand` dispatch, replacing MatchService's own per-type State.*
+  calls and the whole pendingCommands/roundStartState/replay/same-round-conflict machinery.
+  Added `src/shared/tickView.luau` (+ spec) as the per-tick successor to the deleted
+  `resolveView.luau`, and `State.completeAllConstruction` (unconditional, for the setup →
+  live transition only — setup bases were never meant to sit on the same build timer
+  live-placed structures now get). `CommandHandler.luau` needed no changes.
+  `src/client/UI/PlanController.luau` (not in the original artifact list, but load-bearing
+  for the success criterion) was rewritten to match; `RoundClock.luau`/`Cursor.luau` got
+  minimal fixes, one of them (`Cursor.luau`'s stale `.round` reference) a real
+  would-have-crashed-on-hover bug caught on read. A first live test failed immediately
+  (setup bases silently never went live, read as mutual base elimination) — fixed and
+  confirmed working in a second live pass with two Studio clients. `server/Bot.luau` is
+  still broken (Session 011's config renames) and out of scope; the live loop now starts
+  before the bot's one-shot decide() call so that stays contained. The board still fully
+  rebuilds every tick rather than updating incrementally — cosmetic, "Client real-time UI"'s
+  job. `lune run test`: 82/82.
+
+### Practice mode real-time adaptation
+
+- **Status:** open
+- **Prerequisites:** MatchService real-time loop
+- **Success criterion:** `src/client/UI/PracticeController.luau` (the offline "Practice vs.
+  Dummy" flow) is reworked to drive `Rules.applyCommand`/`Rules.tick` the same way the
+  networked path does, instead of its own inline copy of the old round-batch
+  `resolveRound`/resolve-event redaction logic. Surfaced in Session 012: it's a ~500-line
+  local-only controller that never touches `MatchService`/`Replication`/`CommandHandler`, so
+  it wasn't swept up by that entry's rework and isn't named in "Client real-time UI"'s
+  artifacts either — a real gap between entries, not an oversight to silently absorb into
+  either one. Left broken (matching `server/Bot.luau`/`sim/`'s status) until this entry lands.
+- **Artifact:** `src/client/UI/PracticeController.luau`, reusing `src/shared/tickView.luau`
+  (the per-tick redaction module "MatchService real-time loop" introduced to replace the
+  deleted `resolveView.luau`) rather than re-deriving its own copy.
 
 ### Bot re-adaptation
 

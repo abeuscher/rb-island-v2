@@ -209,6 +209,22 @@ function State.completeConstruction(config, state)
 	})
 end
 
+-- Unconditionally completes every structure regardless of readyAt -- for the
+-- setup -> live transition only, where setup's bases were never meant to sit
+-- on a build timer at all (§8: placed during setup, standing before live
+-- begins). State.completeConstruction's own per-tick call stays time-gated
+-- for anything actually built during live play.
+function State.completeAllConstruction(config, state)
+	local newState = withPlayer(state, "A", {
+		resources = state.players.A.resources,
+		structures = Structures.completeConstruction(config, state.players.A.structures, math.huge),
+	})
+	return withPlayer(newState, "B", {
+		resources = newState.players.B.resources,
+		structures = Structures.completeConstruction(config, newState.players.B.structures, math.huge),
+	})
+end
+
 function State.tickAccrue(config, state)
 	local function accrued(player)
 		local generatorCount = Structures.countLive(player.structures, "generator")

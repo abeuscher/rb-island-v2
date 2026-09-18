@@ -1,8 +1,8 @@
 -- Shapes and sends every payload MatchService pushes to a client. The shaping
--- itself is pure (View/ResolveView/Rules.summary, all in src/shared/) --
--- this module's only job is picking the right remote and firing it at the
--- right single player. Never :FireAllClients -- a payload meant for A must
--- never reach B and vice versa (§12).
+-- itself is pure (View/TickView/Rules.summary, all in src/shared/) -- this
+-- module's only job is picking the right remote and firing it at the right
+-- single player. Never :FireAllClients -- a payload meant for A must never
+-- reach B and vice versa (§12).
 
 local View = require(game:GetService("ReplicatedStorage").Shared.view)
 local Rules = require(game:GetService("ReplicatedStorage").Shared.rules)
@@ -20,21 +20,20 @@ function Replication.pushMatchFound(remotes, player, owner)
 	remotes.MatchFound:FireClient(player, { owner = owner })
 end
 
-function Replication.pushState(remotes, player, config, state, owner, phase, secondsRemaining, message, ok)
+-- One continuous push, fired both after a command (with `message`/`ok`, no
+-- `tickView`) and once per tick (no `message`, `tickView` carrying whatever
+-- landed this tick to animate) -- never both at once, since a command ack and
+-- a tick's resolution are always separate calls.
+function Replication.pushState(remotes, player, state, owner, phase, message, ok, tickView)
 	remotes.StateUpdate:FireClient(player, {
 		phase = phase,
 		view = View.new(state, owner),
-		secondsRemaining = secondsRemaining,
 		message = message,
 		ok = ok,
+		shots = tickView and tickView.shots or nil,
+		destroyed = tickView and tickView.destroyed or nil,
+		newBelief = tickView and tickView.newBelief or nil,
 	})
-end
-
--- `view` is already-built src/shared/resolveView.luau output -- MatchService
--- builds it itself (it also needs to read `view.misfireMessages` back out to
--- carry into the next plan phase's message), so this only ever fires it.
-function Replication.pushResolveView(remotes, player, view)
-	remotes.ResolveEvent:FireClient(player, view)
 end
 
 function Replication.pushResult(remotes, player, config, state, owner, victory)

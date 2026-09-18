@@ -1,28 +1,27 @@
--- One real two-player match's authoritative state and round loop (§12). Owns
--- the single MatchState both clients are scored against; every command a
--- client sends is a request, validated here through the same pure
--- src/shared/ functions the old single-player PlanController called
--- directly -- the client itself never calls them anymore.
+-- One real match's authoritative state and live tick loop (§12). Owns the
+-- single MatchState both clients are scored against; every command a client
+-- sends is a request, validated here through the same pure src/shared/
+-- functions the old single-player PlanController called directly -- the
+-- client itself never calls them anymore.
 --
--- PLAN-phase commands are applied immediately to `self.state` (so a push back
--- to that same player reflects it right away) and, in parallel, queued into
--- `self.pendingCommands[owner]` for the round's real `Rules.resolveRound`
--- replay at resolve -- the same two-track model Session 007's local
--- PlanController used, just relocated here now that there are two real
--- owners instead of one player and a scripted dummy.
---
--- A round ends when both players ready up or the clock runs out, whichever
--- comes first (§4 gives a round clock but doesn't say early-ready is allowed
--- for two real players -- Session 008's own call, since a single local player
--- never had anyone else to wait for).
+-- Phases: "setup" (place 3 bases, untimed) -> "live" (Rules.tick runs on a
+-- recurring config.TICK_SECONDS heartbeat; every command applies immediately
+-- and permanently via Rules.applyCommand, since there's no round boundary
+-- left to hold anything until) -> "result". This replaces the old
+-- setup/plan/resolve/result machine and its immediate-apply/replay two-track
+-- command model (that model existed only to make simultaneous-reveal
+-- batching possible; once resolution runs continuously rather than once per
+-- round, there's nothing left to batch).
 --
 -- A bot match (Session 009) gives owner "B" no real Player Instance at all --
--- self.players.B and self.owners simply never get an entry for it. Setup and
--- PLAN-phase commands for a bot seat run through the exact same
--- _handleSetupCommand/_handlePlanCommand/_handleTarget paths a real player's
--- commands do (see _runBotTurn), so a bot is held to identical validation,
--- costs, and unlock gates -- every push-to-client call just no-ops for it
--- (see _pushState).
+-- self.players.B and self.owners simply never get an entry for it. Setup
+-- commands for a bot seat run through the exact same _handleSetupCommand
+-- path a real player's commands do, so a bot is held to identical
+-- validation, costs, and unlock gates -- every push-to-client call just
+-- no-ops for it (see _pushState). Bot re-decisions during "live" are a
+-- periodic re-decide cadence (server/Bot.luau's own plan entry, not this
+-- one) -- this session only relocates the single opening decide() call
+-- _startLive already made under the old model.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -32,7 +31,7 @@ local Rules = require(ReplicatedStorage.Shared.rules)
 local Structures = require(ReplicatedStorage.Shared.structures)
 local Flight = require(ReplicatedStorage.Shared.flight)
 local View = require(ReplicatedStorage.Shared.view)
-local ResolveView = require(ReplicatedStorage.Shared.resolveView)
+local TickView = require(ReplicatedStorage.Shared.tickView)
 local Replication = require(script.Parent.Replication)
 local Bot = require(script.Parent.Bot)
 
@@ -43,21 +42,6 @@ local OWNERS = { "A", "B" }
 
 local function otherOwner(owner)
 	return owner == "A" and "B" or "A"
-end
-
-local function cellKey(x, y)
-	return x .. "," .. y
-end
-
-local function footprintCellKeys(config, typeId, x, y)
-	local size = config.STRUCTURES[typeId] and config.STRUCTURES[typeId].footprint or 1
-	local keys = {}
-	for dx = 0, size - 1 do
-		for dy = 0, size - 1 do
-			table.insert(keys, cellKey(x + dx, y + dy))
-		end
-	end
-	return keys
 end
 
 function MatchService.new(config, remotes, playerA, playerB, onEnded, botDifficulty)
@@ -74,16 +58,9 @@ function MatchService.new(config, remotes, playerA, playerB, onEnded, botDifficu
 	self.bot = botDifficulty and Bot.new(botDifficulty) or nil
 
 	self.state = State.new(config)
-	self.roundStartState = nil
-	self.pendingCommands = { A = {}, B = {} }
-	self.targets = { A = {}, B = {} }
-	self.readyForRounds = { A = false, B = false }
-	self.readyForResolve = { A = false, B = false }
-	self.secondsRemaining = config.PLAN_SECONDS
+	self.readyForSetup = { A = false, B = false }
 	self.phase = "setup"
 	self.dead = false
-	self._roundToken = 0
-	self._misfireMessages = nil
 	self._lastVictory = nil
 
 	Replication.pushMatchFound(remotes, playerA, "A")
@@ -101,12 +78,12 @@ function MatchService.new(config, remotes, playerA, playerB, onEnded, botDifficu
 	return self
 end
 
-function MatchService:_pushState(owner, message, ok)
+function MatchService:_pushState(owner, message, ok, tickView)
 	local player = self.players[owner]
 	if not player then
 		return
 	end
-	Replication.pushState(self.remotes, player, self.config, self.state, owner, self.phase, self.secondsRemaining, message, ok)
+	Replication.pushState(self.remotes, player, self.state, owner, self.phase, message, ok, tickView)
 end
 
 function MatchService:_pushCurrent(owner)
@@ -127,19 +104,16 @@ function MatchService:_countBases(owner)
 	return count
 end
 
--- Mirrors rules.luau's applyPlayerCommands, which drops a same-round
--- placement on any cell this owner's own commands have already terrain-
--- edited this round (§8). The immediate-apply preview below has to enforce
--- this too, or it would show a placement that resolveRound will silently
--- drop later.
-function MatchService:_terrainEditedThisRound(owner)
-	local edited = {}
-	for _, cmd in ipairs(self.pendingCommands[owner]) do
-		if cmd.type == "raise" or cmd.type == "lower" or cmd.type == "reclaim" then
-			edited[cellKey(cmd.x, cmd.y)] = true
-		end
+-- Shared success plumbing for every command that just needs Rules.applyCommand
+-- run and the result pushed back.
+function MatchService:_applyAndPush(owner, command, label)
+	local newState, ok, err = Rules.applyCommand(self.config, self.state, owner, command)
+	if ok then
+		self.state = newState
+		self:_pushState(owner, label, true)
+	else
+		self:_pushState(owner, err, false)
 	end
-	return edited
 end
 
 function MatchService:handleCommand(player, command)
@@ -166,37 +140,26 @@ function MatchService:handleCommand(player, command)
 		return
 	end
 
-	if self.phase ~= "plan" then
+	if self.phase ~= "live" then
 		return
 	end
 
-	if command.type == "target" then
-		self:_handleTarget(owner, command)
-		return
-	end
-
-	self:_handlePlanCommand(owner, command)
+	self:_handleLiveCommand(owner, command)
 end
 
 function MatchService:_handleReady(owner)
-	if self.phase == "setup" then
-		if self:_countBases(owner) ~= self.config.NUM_BASES then
-			self:_pushState(owner, string.format("place exactly %d bases before starting", self.config.NUM_BASES), false)
-			return
-		end
-		self.readyForRounds[owner] = true
-		self:_pushState(owner, "waiting for opponent", true)
-		if self.readyForRounds.A and self.readyForRounds.B then
-			self.state = State.completeConstruction(self.config, self.state)
-			self:_startPlanPhase()
-		end
-	elseif self.phase == "plan" then
-		self.readyForResolve[owner] = true
-		if self.readyForResolve.A and self.readyForResolve.B then
-			self:_advanceRound()
-		else
-			self:_pushState(owner, "waiting for opponent", true)
-		end
+	if self.phase ~= "setup" then
+		return
+	end
+	if self:_countBases(owner) ~= self.config.NUM_BASES then
+		self:_pushState(owner, string.format("place exactly %d bases before starting", self.config.NUM_BASES), false)
+		return
+	end
+	self.readyForSetup[owner] = true
+	self:_pushState(owner, "waiting for opponent", true)
+	if self.readyForSetup.A and self.readyForSetup.B then
+		self.state = State.completeAllConstruction(self.config, self.state)
+		self:_startLive()
 	end
 end
 
@@ -211,27 +174,35 @@ function MatchService:_handleSetupCommand(owner, command)
 			self:_pushState(owner, "only bases can be placed during setup", false)
 			return
 		end
-		local newState, ok, err = State.placeStructure(self.config, self.state, owner, "base", command.x, command.y)
-		if ok then
-			self.state = newState
-			self:_pushState(owner, "placed base", true)
-		else
-			self:_pushState(owner, err, false)
-		end
+		self:_applyAndPush(owner, command, "placed base")
 		return
 	end
 
 	if command.type == "bulldoze" then
-		local newState, ok, err = State.bulldozeStructure(self.config, self.state, owner, command.x, command.y)
-		if ok then
-			self.state = newState
-			self:_pushState(owner, "bulldozed", true)
-		else
-			self:_pushState(owner, err, false)
-		end
+		self:_applyAndPush(owner, command, "bulldozed")
 	end
 end
 
+function MatchService:_handleLiveCommand(owner, command)
+	if command.type == "target" then
+		self:_handleTarget(owner, command)
+	elseif command.type == "bulldoze" then
+		self:_applyAndPush(owner, command, "bulldozed")
+	elseif command.type == "raise" then
+		self:_applyAndPush(owner, command, "raised terrain")
+	elseif command.type == "lower" then
+		self:_applyAndPush(owner, command, "lowered terrain")
+	elseif command.type == "reclaim" then
+		self:_applyAndPush(owner, command, "reclaimed land")
+	elseif command.type == "place" then
+		self:_applyAndPush(owner, command, "placed " .. tostring(command.typeId))
+	end
+end
+
+-- Range/ownership are checked here too, ahead of Rules.applyCommand, purely for
+-- an instant, specific error message -- Rules.tick's own fire-time check
+-- (planShots) would otherwise just leave an illegal target silently never
+-- firing, with nothing to tell the player why.
 function MatchService:_handleTarget(owner, command)
 	local weapon = Structures.at(self.config.STRUCTURES, self.state.players[owner].structures, command.x, command.y)
 	if not weapon then
@@ -257,96 +228,25 @@ function MatchService:_handleTarget(owner, command)
 		return
 	end
 
-	self.targets[owner][cellKey(weapon.x, weapon.y)] = { x = command.targetX, y = command.targetY }
-	table.insert(self.pendingCommands[owner], {
-		type = "target",
-		x = weapon.x,
-		y = weapon.y,
-		targetX = command.targetX,
-		targetY = command.targetY,
-	})
-	self:_pushState(owner, string.format("target set to (%d, %d)", command.targetX, command.targetY), true)
+	self:_applyAndPush(owner, command, string.format("target set to (%d, %d)", command.targetX, command.targetY))
 end
 
-function MatchService:_handlePlanCommand(owner, command)
-	local newState, ok, err, label
-
-	if command.type == "bulldoze" then
-		newState, ok, err = State.bulldozeStructure(self.config, self.state, owner, command.x, command.y)
-		label = "bulldozed"
-	elseif command.type == "raise" then
-		newState, ok, err = State.raiseTerrain(self.config, self.state, owner, command.x, command.y)
-		label = "raised terrain"
-	elseif command.type == "lower" then
-		newState, ok, err = State.lowerTerrain(self.config, self.state, owner, command.x, command.y)
-		label = "lowered terrain"
-	elseif command.type == "reclaim" then
-		newState, ok, err = State.reclaimLand(self.config, self.state, owner, command.x, command.y)
-		label = "reclaimed land"
-	elseif command.type == "place" then
-		local editedThisRound = self:_terrainEditedThisRound(owner)
-		for _, footKey in ipairs(footprintCellKeys(self.config, command.typeId, command.x, command.y)) do
-			if editedThisRound[footKey] then
-				self:_pushState(owner, "cell was terrain-edited this round -- place next round", false)
-				return
-			end
-		end
-		newState, ok, err = State.placeStructure(self.config, self.state, owner, command.typeId, command.x, command.y)
-		label = "placed " .. tostring(command.typeId)
-	else
-		return
-	end
-
-	if ok then
-		self.state = newState
-		table.insert(self.pendingCommands[owner], command)
-		self:_pushState(owner, label, true)
-	else
-		self:_pushState(owner, err, false)
-	end
-end
-
-function MatchService:_startPlanPhase()
-	self._roundToken += 1
-	local token = self._roundToken
-	self.phase = "plan"
-
-	-- Applied before roundStartState is captured below -- _advanceRound's
-	-- Rules.resolveRound replays pendingCommands.B against roundStartState,
-	-- not self.state, so the bot's Supply multiplier has to already be
-	-- baked into that snapshot or a purchase the bot could only afford with
-	-- the bonus would preview successfully here and then silently get
-	-- dropped as unaffordable during the real resolve.
-	if self.bot then
-		self.state = self:_applyBotSupplyMultiplier(self.state)
-	end
-
-	self.roundStartState = self.state
-	self.pendingCommands = { A = {}, B = {} }
-	self.readyForResolve = { A = false, B = false }
-	self.secondsRemaining = self.config.PLAN_SECONDS
+function MatchService:_startLive()
+	self.phase = "live"
 
 	for _, owner in ipairs(OWNERS) do
-		local misfire = self._misfireMessages and self._misfireMessages[owner] or {}
-		local message, ok
-		if #misfire > 0 then
-			message = table.concat(misfire, "; ")
-			ok = false
-		else
-			message = string.format("round %d begins", self.state.round)
-			ok = true
-		end
-		self:_pushState(owner, message, ok)
+		self:_pushState(owner, "match begins", true)
 	end
-	self._misfireMessages = nil
 
-	self:_runBotTurn()
+	-- The tick loop starts before the bot's own (currently broken -- Bot re-
+	-- adaptation's job, not this one) decide() call, so a bot-seat error can't
+	-- also take the live loop down with it.
+	self:_runTickLoop()
 
-	task.delay(self.config.PLAN_SECONDS, function()
-		if self._roundToken == token then
-			self:_advanceRound()
-		end
-	end)
+	if self.bot then
+		self.state = self:_applyBotSupplyMultiplier(self.state)
+		self:_runBotTurn()
+	end
 end
 
 -- §14's difficulty knob, applied directly to the bot's own resources rather
@@ -364,60 +264,42 @@ function MatchService:_applyBotSupplyMultiplier(state)
 	})
 end
 
--- Evaluated once per PLAN phase (§14), right as it opens -- a bot never needs
--- the clock, so its move is locked in immediately rather than waiting out
--- config.PLAN_SECONDS alongside the real player.
+-- The bot's one and only decide() call, carried over unchanged from the old
+-- once-per-PLAN-phase cadence -- a periodic re-decide loop is Bot
+-- re-adaptation's own plan entry, not this one.
 function MatchService:_runBotTurn()
-	if not self.bot then
-		return
-	end
-
 	local commands = self.bot:decide(self.config, View.new(self.state, "B"))
 	for _, command in ipairs(commands) do
 		if command.type == "target" then
 			self:_handleTarget("B", command)
 		else
-			self:_handlePlanCommand("B", command)
+			self:_applyAndPush("B", command, command.type)
 		end
 	end
-	self:_handleReady("B")
 end
 
-function MatchService:_advanceRound()
-	if self.phase ~= "plan" then
-		return
-	end
-	self._roundToken += 1
-	self.phase = "resolve"
-
-	local newState, _, victory, resolution = Rules.resolveRound(self.config, self.roundStartState, self.pendingCommands.A, self.pendingCommands.B)
-
-	self._pendingState = newState
-	self._pendingVictory = victory
-	self._misfireMessages = {}
-
-	for _, owner in ipairs(OWNERS) do
-		local newBelief = newState.players[owner].belief
-		local view = ResolveView.new(self.config, owner, resolution, self.targets[owner], newBelief)
-		self._misfireMessages[owner] = view.misfireMessages
-		if self.players[owner] then
-			Replication.pushResolveView(self.remotes, self.players[owner], view)
+function MatchService:_runTickLoop()
+	task.spawn(function()
+		while self.phase == "live" and not self.dead do
+			task.wait(self.config.TICK_SECONDS)
+			if self.phase ~= "live" or self.dead then
+				return
+			end
+			self:_tick()
 		end
-	end
-
-	task.delay(self.config.RESOLVE_SECONDS, function()
-		self:_commitResolve()
 	end)
 end
 
-function MatchService:_commitResolve()
-	if self.phase ~= "resolve" then
-		return
+function MatchService:_tick()
+	local newState, _, victory, resolution = Rules.tick(self.config, self.state)
+	self.state = newState
+
+	for _, owner in ipairs(OWNERS) do
+		if self.players[owner] then
+			local newBelief = newState.players[owner].belief
+			self:_pushState(owner, nil, nil, TickView.new(owner, resolution, newBelief))
+		end
 	end
-	self.state = self._pendingState
-	local victory = self._pendingVictory
-	self._pendingState = nil
-	self._pendingVictory = nil
 
 	if victory then
 		self.phase = "result"
@@ -428,22 +310,18 @@ function MatchService:_commitResolve()
 			end
 		end
 		self.onEnded()
-		return
 	end
-
-	self:_startPlanPhase()
 end
 
--- Best-effort: stop the round loop and let the remaining player know, rather
--- than leaving them ticking down a clock nobody will ever resolve. No
--- reconnection support -- out of scope for this session (§16 only asks for
--- two clients able to play a match, not survive a drop).
+-- Best-effort: stop the live loop and let the remaining player know, rather
+-- than leaving them in a match nobody will ever tick again. No reconnection
+-- support -- out of scope for this session (§16 only asks for two clients
+-- able to play a match, not survive a drop).
 function MatchService:playerLeft(player)
 	if self.dead then
 		return
 	end
 	self.dead = true
-	self._roundToken += 1
 
 	local owner = self.owners[player]
 	local remaining = otherOwner(owner)

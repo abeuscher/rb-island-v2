@@ -140,6 +140,16 @@ t.test("completeConstruction only completes a structure once its readyAt has pas
 	t.expectEqual(afterComplete.players.A.structures[1].hp, config.STRUCTURES.generator.hp)
 end)
 
+t.test("completeAllConstruction completes every structure regardless of readyAt -- for setup, which never puts bases on a build timer", function()
+	local state = State.new(config)
+	local afterPlace = State.placeStructure(config, state, "A", "base", 6, 7)
+	t.expectTrue(afterPlace.players.A.structures[1].underConstruction)
+
+	local afterComplete = State.completeAllConstruction(config, afterPlace)
+	t.expectFalse(afterComplete.players.A.structures[1].underConstruction)
+	t.expectEqual(afterComplete.players.A.structures[1].hp, config.STRUCTURES.base.hp)
+end)
+
 t.test("tickAccrue pays out Supply and generator Energy income scaled by TICK_SECONDS", function()
 	local state = State.new(config)
 	local afterPlace = State.placeStructure(config, state, "A", "generator", 6, 7)

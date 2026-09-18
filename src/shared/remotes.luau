@@ -8,7 +8,7 @@ local RunService = game:GetService("RunService")
 
 local Remotes = {}
 
-local NAMES = { "Command", "StateUpdate", "ResolveEvent", "MatchFound" }
+local NAMES = { "Command", "StateUpdate", "MatchFound" }
 
 function Remotes.get()
 	local events = {}

@@ -66,18 +66,16 @@ function RoundClock.mount(parent, controller)
 
 	local function refresh()
 		readyHighlight.Enabled = controller.phase == "setup" and controller:countOwnBases() == controller.config.NUM_BASES
+		readyButton.Visible = controller.phase == "setup"
 
 		if controller.phase == "setup" then
 			roundLabel.Text = "Setup"
 			clockLabel.Text = string.format("%d/%d bases placed", controller:countOwnBases(), controller.config.NUM_BASES)
-		elseif controller.phase == "resolve" then
-			roundLabel.Text = string.format("Round %d -- RESOLVE", controller.state.round)
-			clockLabel.Text = "Resolving..."
 		elseif controller.phase == "result" then
 			roundLabel.Text = "Match over"
 			clockLabel.Text = ""
 		else
-			roundLabel.Text = string.format("Round %d -- PLAN", controller.state.round)
+			roundLabel.Text = "Live"
 			clockLabel.Text = string.format("%ds remaining", math.max(0, math.ceil(controller:getSecondsRemaining())))
 		end
 	end
