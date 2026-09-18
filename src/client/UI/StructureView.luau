@@ -80,17 +80,23 @@ function StructureView.render(parent, controller)
 		addGlyph(part, GLYPHS[structure.typeId] or "?")
 	end
 
-	for _, target in pairs(controller.targets) do
-		local elevation = Board.elevationAt(board, target.x, target.y)
-		local top = (elevation + 1) * studsPerCell
-		makePart(
-			Vector3.new(studsPerCell * 0.3, 0.2, studsPerCell * 0.3),
-			Vector3.new((target.x - 0.5) * studsPerCell, top + 0.1, (target.y - 0.5) * studsPerCell),
-			TARGET_COLOR,
-			0,
-			string.format("Target_%d_%d", target.x, target.y),
-			parent
-		)
+	-- Read straight off each weapon's own `.target` (own structures are always
+	-- fully visible) rather than a separate client-side cache, so the marker
+	-- can never show a target the weapon isn't actually the one firing at.
+	for _, structure in ipairs(controller.state.self.structures) do
+		local target = structure.target
+		if target then
+			local elevation = Board.elevationAt(board, target.x, target.y)
+			local top = (elevation + 1) * studsPerCell
+			makePart(
+				Vector3.new(studsPerCell * 0.3, 0.2, studsPerCell * 0.3),
+				Vector3.new((target.x - 0.5) * studsPerCell, top + 0.1, (target.y - 0.5) * studsPerCell),
+				TARGET_COLOR,
+				0,
+				string.format("Target_%d_%d", target.x, target.y),
+				parent
+			)
+		end
 	end
 end
 

@@ -234,13 +234,13 @@ function Render.mount(effectsFolder, enemyFolder, controller)
 		end
 	end
 
-	-- effectsFolder is deliberately left alone here -- onResolve below owns it
-	-- (clears it right before a new volley's shots/rubble), and every tick fires
-	-- onChange too, so clearing it here would cut an in-flight shot animation off
-	-- before it reaches its target.
-	controller:onChange(function()
-		renderEnemyBoard()
-	end)
+	-- Enemy belief only ever changes via a reveal (§11, confirmed in fog.luau --
+	-- nothing else touches it), and onResolve below already repaints exactly the
+	-- cells a reveal touches, progressively as each shot's beam crosses them. So
+	-- this is a one-time initial draw, not a per-tick hook: redrawing the whole
+	-- board on every onChange would repaint already-revealed cells from the
+	-- current belief before the animation gets to them, making the reveal look
+	-- instant instead of tracing in.
 	renderEnemyBoard()
 
 	controller:onResolve(function(preState, shots, destroyed, newBelief)

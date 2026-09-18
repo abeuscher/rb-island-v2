@@ -94,8 +94,6 @@ function BuildPalette.mount(parent, controller)
 			end
 		end
 		toolButtons = {}
-		controller:setTool("none")
-		setActive(nil)
 
 		local tools = (phase == "setup") and TOOLS_SETUP or TOOLS_ROUNDS
 		for order, tool in ipairs(tools) do
@@ -105,6 +103,18 @@ function BuildPalette.mount(parent, controller)
 				controller:setTool(tool.id)
 				setActive(tool.id)
 			end)
+		end
+
+		-- Setup only ever offers base placement + bulldoze, and placing bases is
+		-- the only thing to do first -- pre-select it so the player isn't forced
+		-- to click a tool before their first placement. Rounds has no single
+		-- obvious default, so it starts with nothing armed as before.
+		if phase == "setup" then
+			controller:setTool("place:base")
+			setActive("place:base")
+		else
+			controller:setTool("none")
+			setActive(nil)
 		end
 	end
 
@@ -148,8 +158,15 @@ function BuildPalette.mount(parent, controller)
 		for order, weapon in ipairs(controller:getWeapons()) do
 			local targetText = weapon.target and string.format("-> (%d, %d)", weapon.target.x, weapon.target.y)
 				or "-> unassigned"
+			local cooldownText
+			if weapon.underConstruction then
+				cooldownText = "building"
+			else
+				local secondsLeft = math.max(0, (weapon.nextFireAt or 0) - controller.state.elapsed)
+				cooldownText = secondsLeft > 0 and string.format("cooling %ds", math.ceil(secondsLeft)) or "ready"
+			end
 			local button = makeButton(
-				string.format("%s (%d,%d) %s", weapon.typeId, weapon.x, weapon.y, targetText),
+				string.format("%s (%d,%d) %s [%s]", weapon.typeId, weapon.x, weapon.y, targetText, cooldownText),
 				order,
 				weaponList
 			)

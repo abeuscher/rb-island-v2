@@ -36,10 +36,20 @@ function RoundClock.mount(parent, controller)
 	clockLabel.TextColor3 = Color3.fromRGB(240, 240, 240)
 	clockLabel.Parent = frame
 
+	local resourceLabel = Instance.new("TextLabel")
+	resourceLabel.Name = "ResourceLabel"
+	resourceLabel.Size = UDim2.new(1, 0, 0, 20)
+	resourceLabel.LayoutOrder = 3
+	resourceLabel.Font = Enum.Font.SourceSans
+	resourceLabel.TextSize = 14
+	resourceLabel.BackgroundTransparency = 1
+	resourceLabel.TextColor3 = Color3.fromRGB(200, 220, 240)
+	resourceLabel.Parent = frame
+
 	local readyButton = Instance.new("TextButton")
 	readyButton.Name = "ReadyButton"
 	readyButton.Size = UDim2.new(1, 0, 0, 28)
-	readyButton.LayoutOrder = 3
+	readyButton.LayoutOrder = 4
 	readyButton.Text = "Ready"
 	readyButton.Font = Enum.Font.SourceSansBold
 	readyButton.TextSize = 16
@@ -77,6 +87,12 @@ function RoundClock.mount(parent, controller)
 		else
 			roundLabel.Text = "Live"
 			clockLabel.Text = string.format("%ds remaining", math.max(0, math.ceil(controller:getSecondsRemaining())))
+		end
+
+		resourceLabel.Visible = controller.phase ~= "result"
+		if controller.phase ~= "result" then
+			local resources = controller.state.self.resources
+			resourceLabel.Text = string.format("Supply %d  Energy %d", math.floor(resources.supply), math.floor(resources.energy))
 		end
 	end
 

@@ -352,10 +352,11 @@ function Rules.checkVictory(config, state)
 	local incapA = graceExpired(state.players.A)
 	local incapB = graceExpired(state.players.B)
 	if incapA or incapB then
-		if incapA and incapB then
-			return { condition = "incapacitation", winner = decideByPoints(config, state) }
-		end
-		return { condition = "incapacitation", winner = incapA and "B" or "A" }
+		-- Decided on points like every other non-elimination ending, not an
+		-- automatic win for the other side -- a player can still be ahead on
+		-- score (destruction/standing/reveal/hit) despite being the one who ran
+		-- out of Energy, and that should still win them the match.
+		return { condition = "incapacitation", winner = decideByPoints(config, state) }
 	end
 
 	if state.elapsed >= config.MATCH_SECONDS then

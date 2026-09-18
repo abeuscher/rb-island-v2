@@ -83,7 +83,7 @@ t.test("time limit: the higher score wins if the match clock runs out with no el
 	t.expectEqual(victory.winner, "A")
 end)
 
-t.test("incapacitation: a player with no weapon and no way to rebuild loses once the grace window expires, not before", function()
+t.test("incapacitation: the grace window must fully expire before it can end the match", function()
 	-- Zeroing Supply income and starting Supply isolates the "unrecoverable" check
 	-- from ordinary accrual, which would otherwise refill B past every threshold
 	-- this test cares about. A short grace window keeps the tick loop small while
@@ -110,6 +110,20 @@ t.test("incapacitation: a player with no weapon and no way to rebuild loses once
 	t.expectTrue(victory3 ~= nil)
 	t.expectEqual(victory3.condition, "incapacitation")
 	t.expectEqual(victory3.winner, "A")
+end)
+
+t.test("incapacitation is decided on points, not an automatic win for the other side", function()
+	local state = State.new(config)
+	state = State.withPlayer(state, "A", { structures = { withBase(6, 7) } })
+	-- B is the incapacitated side here, but still holds a big enough points lead
+	-- (from earlier destruction/reveal/hit) that it should still win the match --
+	-- running out of Energy isn't itself a loss condition once points disagree.
+	state = State.withPlayer(state, "B", { structures = { withBase(24, 7) }, destructionPoints = 200, incapableSince = 0 })
+	state.elapsed = config.INCAPACITATION_GRACE_SECONDS
+
+	local victory = Rules.checkVictory(config, state)
+	t.expectEqual(victory.condition, "incapacitation")
+	t.expectEqual(victory.winner, "B")
 end)
 
 t.test("Rules.tick fires an off-cooldown weapon automatically once its target and construction are set, and tracks fired/hit/blocked shots", function()

@@ -41,7 +41,6 @@ function PlanController.new(config, owner, remotes)
 
 	self.phase = "setup"
 	self.state = nil
-	self.targets = {}
 	self.tool = "none"
 	self.armedWeaponKey = nil
 	self.armedWeapon = nil
@@ -115,19 +114,26 @@ function PlanController:armTarget(weapon)
 	self.armedWeapon = weapon
 end
 
--- The player's own live, completed weapons -- only these can be given a target.
+-- The player's own weapons, still under construction or not -- a target can be
+-- armed on one right after placing it (Rules.applyCommand's "target" command
+-- doesn't require it to be complete either), so it starts firing the moment
+-- construction finishes instead of sitting idle until the player comes back.
+-- `target` reads straight off the structure (own structures are always fully
+-- visible, never redacted) rather than a separate client-side cache -- so the
+-- displayed target can never drift from what the weapon is actually firing at.
 function PlanController:getWeapons()
 	local weapons = {}
 	for _, structure in ipairs(self.state.self.structures) do
 		local def = self.config.STRUCTURES[structure.typeId]
-		if def.fire_mode and not structure.underConstruction then
-			local key = cellKey(structure.x, structure.y)
+		if def.fire_mode then
 			table.insert(weapons, {
-				key = key,
+				key = cellKey(structure.x, structure.y),
 				x = structure.x,
 				y = structure.y,
 				typeId = structure.typeId,
-				target = self.targets[key],
+				target = structure.target,
+				nextFireAt = structure.nextFireAt,
+				underConstruction = structure.underConstruction,
 			})
 		end
 	end
@@ -176,7 +182,6 @@ function PlanController:handleBoardClick(x, y)
 			return
 		end
 
-		self.targets[self.armedWeaponKey] = { x = x, y = y }
 		self.remotes.Command:FireServer({ type = "target", x = weapon.x, y = weapon.y, targetX = x, targetY = y })
 		return
 	end

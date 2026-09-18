@@ -211,7 +211,7 @@ function MatchService:_handleTarget(owner, command)
 	end
 
 	local def = self.config.STRUCTURES[weapon.typeId]
-	if not def.fire_mode or weapon.underConstruction then
+	if not def.fire_mode then
 		self:_pushState(owner, "not a usable weapon", false)
 		return
 	end

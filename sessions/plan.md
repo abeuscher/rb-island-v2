@@ -285,7 +285,7 @@ for it.
 
 ### Client real-time UI
 
-- **Status:** open
+- **Status:** done (Session 014)
 - **Prerequisites:** Real-time rules core, MatchService real-time loop
 - **Success criterion:** The round-based clock display is replaced by a single match clock
   (elapsed/remaining time against `MATCH_SECONDS`) — **no round counter anywhere in the UI**;
@@ -311,6 +311,46 @@ for it.
   that symptom, not a minor one. `effectsFolder`'s own every-tick clear (a separate, smaller bug
   that was also killing the projectile itself) was already fixed in Session 013; this one needs
   the real event-driven rendering this entry owns.
+- **Outcome:** The Session 013 finding was the fix: `Render.luau`'s `onChange` handler no
+  longer calls `renderEnemyBoard()` every tick — belief only ever changes via a reveal
+  (confirmed against `fog.luau`), and `onResolve`'s existing progressive per-cell reveal was
+  already the only place that needed to touch the enemy board, so removing the redundant
+  full-board redraw was the whole fix. `BuildPalette.luau` pre-selects "Place Base" for setup;
+  weapon rows show live "ready"/"cooling Ns"/"building" state (`nextFireAt`/`underConstruction`
+  threaded through both controllers' `getWeapons()`); `RoundClock.luau` gained a Supply/Energy
+  readout (net-new — no such display existed anywhere in the client before this session, not a
+  rework of an existing one). Match clock / no-round-counter was already satisfied by Sessions
+  011-013's real-time rework, confirmed rather than changed. Live user testing surfaced two
+  further bugs fixed in the same session (not in the original artifact list): weapons couldn't
+  be targeted until construction finished (`getWeapons()` was filtering them out entirely —
+  removed, since the rules layer never required completion either), and retargeting a live
+  weapon didn't take because the display read from an optimistic client-only `self.targets`
+  cache instead of the structure's own `.target` (removed the cache in favor of reading
+  `structure.target` directly, and fixed a matching stale gate in `server/MatchService.luau`).
+  Also, at the user's explicit request, `Rules.checkVictory`'s incapacitation ending is now
+  decided by score (`decideByPoints`, same as time-limit and mutual base elimination) rather
+  than an automatic win for the other side — surfaced by the Session 013 Supply-squeeze finding
+  leaving no path to a win during testing. `lune run test`: 84/84. `rojo build` clean.
+  User-confirmed live in Studio across each fix.
+
+### Weapon inspection and control panel
+
+- **Status:** open, scope pending design
+- **Prerequisites:** Client real-time UI
+- **Success criterion:** Selecting a placed weapon on the battlefield surfaces an info card
+  (bottom-right of the screen) showing its live stats — range, damage, cooldown, current
+  target — and a control to enable/disable its automatic firing without bulldozing and
+  replacing it. The card's layout leaves room for upgrade controls to be added later without
+  a rework of the panel itself.
+- **Artifact:** a weapon-select interaction on the battlefield (client), the info card
+  component, and a `structure.enabled`-style flag threaded through `Structures`/`Rules.tick`'s
+  fire gate (shared) for the enable/disable control.
+- **Note (raised Session 014):** deliberately left unscoped for now — needs its own design
+  pass before implementation (how a weapon gets "selected" on the board vs. from the
+  BuildPalette list it has today, how a disabled weapon reads visually on the battlefield).
+  Upgrades themselves are explicitly out of scope here and not yet their own entry — this
+  card is meant to be the future home for upgrade controls once that feature is actually
+  designed, not a prerequisite that must land alongside it.
 
 ### Sim harness rewrite
 
