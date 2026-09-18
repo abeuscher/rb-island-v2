@@ -16,11 +16,24 @@ local Result = {}
 local STRUCTURE_TYPES = { "base", "generator", "cannon", "mortar" }
 local STRUCTURE_LABELS = { base = "Base", generator = "Generator", cannon = "Cannon", mortar = "Mortar" }
 
-local CONDITION_TEXT = {
-	base_elimination = "All bases destroyed",
-	incapacitation = "Opponent incapacitated",
-	round_limit = "Round limit reached",
-}
+-- "incapacitation" is the one condition whose plain-language description
+-- depends on which side it actually happened to -- base_elimination and
+-- time_limit read the same regardless of winner, but "Opponent incapacitated"
+-- would be backwards on a loss (§5.2: incapacitation is a hard loss for
+-- whichever side it hits, not a score tiebreak).
+local function conditionText(victory, owner)
+	if victory.condition == "incapacitation" then
+		if victory.winner == nil then
+			return "Both sides incapacitated"
+		end
+		return (victory.winner == owner) and "Opponent incapacitated" or "You were incapacitated"
+	elseif victory.condition == "base_elimination" then
+		return "All bases destroyed"
+	elseif victory.condition == "time_limit" then
+		return "Time limit reached"
+	end
+	return victory.condition
+end
 
 local function makeLabel(text, order, parent, bold, size)
 	local label = Instance.new("TextLabel")
@@ -158,7 +171,7 @@ function Result.mount(parent, handlers)
 			winnerText = "Defeat"
 		end
 		heading.Text = winnerText
-		subheading.Text = CONDITION_TEXT[victory.condition] or victory.condition
+		subheading.Text = conditionText(victory, owner)
 
 		clearColumns()
 		buildColumn(breakdown, 1, "You", summary.own)

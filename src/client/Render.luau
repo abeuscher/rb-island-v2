@@ -234,8 +234,11 @@ function Render.mount(effectsFolder, enemyFolder, controller)
 		end
 	end
 
+	-- effectsFolder is deliberately left alone here -- onResolve below owns it
+	-- (clears it right before a new volley's shots/rubble), and every tick fires
+	-- onChange too, so clearing it here would cut an in-flight shot animation off
+	-- before it reaches its target.
 	controller:onChange(function()
-		effectsFolder:ClearAllChildren()
 		renderEnemyBoard()
 	end)
 	renderEnemyBoard()

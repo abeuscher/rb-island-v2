@@ -1,34 +1,30 @@
--- Local, offline practice mode against a scripted dummy opponent -- the
--- single-player flow every prior session (004-007) built, kept on
--- deliberately as a documented fallback now that Session 008 adds a real
--- server-authoritative match (see PlanController.luau) as the primary path.
--- No server, no remotes: this controller owns a local MatchState directly,
--- same as before.
+-- Local, offline practice mode against a scripted dummy opponent -- kept on
+-- deliberately as a documented fallback alongside the real server-
+-- authoritative match (see PlanController.luau). No server, no remotes: this
+-- controller owns a local MatchState directly and drives it the same way
+-- MatchService.luau drives a real match, minus the network layer -- a local
+-- `Rules.applyCommand` call per player action, a local recurring tick loop
+-- (RunService.Heartbeat accumulating to config.TICK_SECONDS, since there's
+-- no server heartbeat to piggyback on here), and TickView.new for the
+-- resolve-animation payload.
 --
 -- The rest of the plan-phase UI (StructureView, Cursor, Render, RoundClock,
--- BuildPalette) was rewritten in Session 008 to read a redacted `View`
--- (src/shared/view.luau) off `controller.state` rather than raw MatchState,
--- so both this controller and the real PlanController can drive the exact
--- same UI code unmodified. `self._full` is this controller's private full
--- dual-player MatchState (needed for resolveRound, dummy seeding, and the
--- enemy's true structures); `self.state` is always that state's `View` for
--- the local player, republished via `_publish()` after every mutation.
+-- BuildPalette) reads a redacted `View` (src/shared/view.luau) off
+-- `controller.state` rather than raw MatchState, so both this controller and
+-- the real PlanController can drive the exact same UI code unmodified.
+-- `self._full` is this controller's private full dual-player MatchState
+-- (needed for Rules.tick, dummy seeding, and the enemy's true structures);
+-- `self.state` is always that state's `View` for the local player,
+-- republished via `_publish()` after every mutation.
 --
--- Phases: "setup" (place 3 bases, untimed) -> "plan" (build/target under the
--- clock) -> "resolve" (volley animates) -> back to "plan", or "result" once
--- Rules.checkVictory fires.
+-- Phases: "setup" (place 3 bases, untimed) -> "live" (build/target/fire runs
+-- continuously against the tick loop) -> "result" once Rules.checkVictory
+-- fires. There's no separate resolve phase or clock to restart between
+-- rounds -- every tick can carry something to animate.
 --
--- PLAN-phase commands are applied immediately to `self._full` for instant UI
--- feedback (same precedent as Sessions 005-006), and in parallel logged to
--- `self.pendingCommands`. At round's end those commands are replayed from
--- `self.roundStartState` through `Rules.resolveRound` alongside the dummy's
--- own command batch, so both sides resolve simultaneously against the same
--- pre-round snapshot -- the real batching `resolveRound` was built for.
---
--- Target assignment still has no equivalent in the shared rules core -- rules.luau
--- expects targets in this same shape (a map keyed by the firing structure's
--- origin cell), but nothing there tracks assignment itself -- so it stays local
--- UI state here, mirrored into pendingCommands as "target" commands.
+-- Commands apply immediately and permanently on receipt, like the real
+-- match -- no pendingCommands/roundStartState/replay, since there's no round
+-- boundary left to batch against.
 
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -36,9 +32,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Board = require(ReplicatedStorage.Shared.board)
 local State = require(ReplicatedStorage.Shared.state)
 local Rules = require(ReplicatedStorage.Shared.rules)
-local Economy = require(ReplicatedStorage.Shared.economy)
 local Flight = require(ReplicatedStorage.Shared.flight)
 local View = require(ReplicatedStorage.Shared.view)
+local TickView = require(ReplicatedStorage.Shared.tickView)
 
 local PracticeController = {}
 PracticeController.__index = PracticeController
@@ -61,11 +57,11 @@ end
 -- Seeds a scripted, already-built enemy layout to have something to shoot at --
 -- practice mode's whole point, since it has no real second player. Its 3 bases
 -- exist from the start (setup, for the dummy, is instantaneous), plus a
--- generator and a frontline cannon that fires back across the channel every
--- round -- enough to demonstrate a raised ridge blocking a shot once terrain
--- editing is in play. Placed directly via Board.islandBounds rather than
--- through State.placeStructure so the dummy doesn't need to spend its own
--- Supply or wait out a build time.
+-- generator and a frontline cannon that targets once, live, and fires on its
+-- own cooldown from there -- enough to demonstrate a raised ridge blocking a
+-- shot once terrain editing is in play. Placed directly via Board.islandBounds
+-- rather than through State.placeStructure so the dummy doesn't need to spend
+-- its own Supply or wait out a build time.
 local function seedDummyOpponent(config, state, enemy)
 	local colStart, _, rowStart, _ = Board.islandBounds(config, enemy)
 	-- "Frontline" (closest to the channel) is colStart for B, colEnd for A -- only
@@ -98,21 +94,16 @@ function PracticeController.new(config, owner)
 	local full = State.new(config)
 	full, self.dummyCannonCell = seedDummyOpponent(config, full, self.enemy)
 	self._full = full
-	self.roundStartState = nil
-	self.pendingState = nil
-	self.pendingCommands = {}
-	self.pendingVictory = nil
 	self.phase = "setup"
 
 	self.targets = {}
 	self.tool = "none"
 	self.armedWeaponKey = nil
-	self.secondsRemaining = config.PLAN_SECONDS
+	self.armedWeapon = nil
 	self.listeners = {}
 	self.tickListeners = {}
 	self.resolveListeners = {}
 	self.matchEndListeners = {}
-	self.misfireMessages = {}
 	self._heartbeatConnection = nil
 
 	self:_publish()
@@ -127,19 +118,17 @@ function PracticeController:onChange(callback)
 	table.insert(self.listeners, callback)
 end
 
--- Fires when a Ready/clock-expiry has computed the round's resolution but before
--- it's applied, so the render layer can animate the volley against the state as
--- it stood going in. `callback(preState, shots, destroyed, newBelief)`: `shots` is
--- every shot that was in range this round (each `{ def, shot, owner, origin, hit }`,
--- `shot` per flight.luau's resolveShot contract); `destroyed` is every structure
--- lost; `newBelief` is the owner's belief map after this round's reveals, for
--- revealing cells as a shot's animation actually crosses them rather than only
--- once the round is fully committed.
+-- Fires whenever a tick produced something worth animating. `callback(preState,
+-- shots, destroyed, newBelief)`: `preState` only ever carries `.board` (terrain
+-- is public and never changes mid-tick); `shots` is every shot from both sides
+-- this tick (each `{ def, shot, owner, origin, hit }`, `shot` per flight.luau's
+-- resolveShot contract); `destroyed` is every structure lost on either side
+-- this tick; `newBelief` is the owner's belief map after this tick's reveals.
 function PracticeController:onResolve(callback)
 	table.insert(self.resolveListeners, callback)
 end
 
--- Fires once, when a round's resolve commits into a victory: `callback(victory,
+-- Fires once, when a tick's resolution ends the match: `callback(victory,
 -- summary)`, `summary` a `{ own, opponent }` pair of Rules.summary(...) tables --
 -- the Result screen's contract regardless of controller (see PlanController.luau).
 function PracticeController:onMatchEnd(callback)
@@ -153,7 +142,7 @@ function PracticeController:_notify(message, ok)
 end
 
 -- Fires every Heartbeat while the clock runs, for cheap per-frame countdown
--- display -- kept separate from onChange so a plain tick doesn't force a full
+-- display -- kept separate from onChange so a plain frame doesn't force a full
 -- board/structure re-render 60 times a second.
 function PracticeController:onTick(callback)
 	table.insert(self.tickListeners, callback)
@@ -190,33 +179,6 @@ function PracticeController:getWeapons()
 	return weapons
 end
 
--- Every cell (x,y)'s footprint covers, keyed the same way rules.luau's own
--- footprintKeys does.
-local function footprintCellKeys(config, typeId, x, y)
-	local size = config.STRUCTURES[typeId] and config.STRUCTURES[typeId].footprint or 1
-	local keys = {}
-	for dx = 0, size - 1 do
-		for dy = 0, size - 1 do
-			table.insert(keys, cellKey(x + dx, y + dy))
-		end
-	end
-	return keys
-end
-
--- Cells this round's queued raise/lower/reclaim commands have touched so far --
--- mirrors rules.luau's applyPlayerCommands, which drops a same-round placement
--- on any such cell (§8). The immediate-apply preview has to enforce this too, or
--- it can show a structure placed that resolveRound will silently drop later.
-function PracticeController:_terrainEditedThisRound()
-	local edited = {}
-	for _, cmd in ipairs(self.pendingCommands) do
-		if cmd.type == "raise" or cmd.type == "lower" or cmd.type == "reclaim" then
-			edited[cellKey(cmd.x, cmd.y)] = true
-		end
-	end
-	return edited
-end
-
 -- How many bases the player currently has placed -- setup's Ready gate (must be
 -- exactly config.NUM_BASES) and its "N/3 placed" display both read this.
 function PracticeController:countOwnBases()
@@ -229,15 +191,28 @@ function PracticeController:countOwnBases()
 	return count
 end
 
+-- Shared success plumbing for every command that just needs Rules.applyCommand
+-- run and the result published.
+function PracticeController:_dispatch(command, label)
+	local newState, ok, err = Rules.applyCommand(self.config, self._full, self.owner, command)
+	if ok then
+		self._full = newState
+		self:_publish()
+		self:_notify(label, true)
+	else
+		self:_notify(err, false)
+	end
+end
+
 function PracticeController:handleBoardClick(x, y)
-	if self.phase ~= "setup" and self.phase ~= "plan" then
+	if self.phase ~= "setup" and self.phase ~= "live" then
 		return
 	end
 
 	local tool = self.tool
 
 	if tool == "target" then
-		if self.phase ~= "plan" or not self.armedWeaponKey then
+		if self.phase ~= "live" or not self.armedWeaponKey then
 			return
 		end
 		if Board.ownerOf(self._full.board, x, y) ~= self.enemy then
@@ -255,17 +230,23 @@ function PracticeController:handleBoardClick(x, y)
 		end
 
 		self.targets[self.armedWeaponKey] = { x = x, y = y }
-		table.insert(self.pendingCommands, { type = "target", x = weapon.x, y = weapon.y, targetX = x, targetY = y })
-		self:_notify(string.format("target set to (%d, %d)", x, y), true)
+		self:_dispatch(
+			{ type = "target", x = weapon.x, y = weapon.y, targetX = x, targetY = y },
+			string.format("target set to (%d, %d)", x, y)
+		)
 		return
 	end
 
 	if tool == "bulldoze" then
-		local newState, ok, err = State.bulldozeStructure(self.config, self._full, self.owner, x, y)
+		local newState, ok, err = Rules.applyCommand(self.config, self._full, self.owner, { type = "bulldoze", x = x, y = y })
 		if ok then
+			self._full = newState
 			self.targets[cellKey(x, y)] = nil
+			self:_publish()
+			self:_notify("bulldozed", true)
+		else
+			self:_notify(err, false)
 		end
-		self:_apply(newState, ok, err, "bulldozed", { type = "bulldoze", x = x, y = y })
 		return
 	end
 
@@ -274,81 +255,83 @@ function PracticeController:handleBoardClick(x, y)
 		-- terrain/reclaim/other-structure tool can't be armed here.
 		if string.sub(tool, 1, 6) == "place:" then
 			local typeId = string.sub(tool, 7)
-			local newState, ok, err = State.placeStructure(self.config, self._full, self.owner, typeId, x, y)
-			if ok then
-				self._full = newState
-				self:_publish()
-				self:_notify("placed " .. typeId, true)
-			else
-				self:_notify(err, false)
-			end
+			self:_dispatch({ type = "place", typeId = typeId, x = x, y = y }, "placed " .. typeId)
 		end
 		return
 	end
 
 	if tool == "raise" then
-		local newState, ok, err = State.raiseTerrain(self.config, self._full, self.owner, x, y)
-		self:_apply(newState, ok, err, "raised terrain", { type = "raise", x = x, y = y })
+		self:_dispatch({ type = "raise", x = x, y = y }, "raised terrain")
 		return
 	end
 
 	if tool == "lower" then
-		local newState, ok, err = State.lowerTerrain(self.config, self._full, self.owner, x, y)
-		self:_apply(newState, ok, err, "lowered terrain", { type = "lower", x = x, y = y })
+		self:_dispatch({ type = "lower", x = x, y = y }, "lowered terrain")
 		return
 	end
 
 	if tool == "reclaim" then
-		local newState, ok, err = State.reclaimLand(self.config, self._full, self.owner, x, y)
-		self:_apply(newState, ok, err, "reclaimed land", { type = "reclaim", x = x, y = y })
+		self:_dispatch({ type = "reclaim", x = x, y = y }, "reclaimed land")
 		return
 	end
 
 	if string.sub(tool, 1, 6) == "place:" then
 		local typeId = string.sub(tool, 7)
-		local editedThisRound = self:_terrainEditedThisRound()
-		for _, footKey in ipairs(footprintCellKeys(self.config, typeId, x, y)) do
-			if editedThisRound[footKey] then
-				self:_notify("cell was terrain-edited this round -- place next round", false)
-				return
-			end
-		end
-		local newState, ok, err = State.placeStructure(self.config, self._full, self.owner, typeId, x, y)
-		self:_apply(newState, ok, err, "placed " .. typeId, { type = "place", typeId = typeId, x = x, y = y })
+		self:_dispatch({ type = "place", typeId = typeId, x = x, y = y }, "placed " .. typeId)
 		return
 	end
 end
 
--- Shared success plumbing for the State.* calls above, which all return
--- (newState, ok, err). `label` is used for the success message only. On success,
--- `command` (rules.luau's command shape) is queued for this round's resolveRound
--- batch -- only ever called while phase == "plan", so setup's own direct calls
--- (handled above) never queue anything.
-function PracticeController:_apply(newState, ok, err, label, command)
-	if ok then
-		self._full = newState
-		self:_publish()
-		table.insert(self.pendingCommands, command)
-		self:_notify(label, true)
-	else
-		self:_notify(err, false)
+function PracticeController:getSecondsRemaining()
+	local elapsed = self.state and self.state.elapsed or 0
+	return math.max(0, self.config.MATCH_SECONDS - elapsed)
+end
+
+-- Runs Rules.tick once, publishes the result, and fires onResolve when this
+-- tick actually produced something worth animating -- mirrors MatchService's
+-- _tick, minus pushing anything over the network.
+function PracticeController:_tick()
+	local newState, _, victory, resolution = Rules.tick(self.config, self._full)
+	self._full = newState
+	self:_publish()
+	self:_notify(nil, nil)
+
+	local tickView = TickView.new(self.owner, resolution, newState.players[self.owner].belief)
+	if #tickView.shots > 0 or #tickView.destroyed > 0 then
+		local preState = { board = newState.board }
+		for _, callback in ipairs(self.resolveListeners) do
+			callback(preState, tickView.shots, tickView.destroyed, tickView.newBelief)
+		end
+	end
+
+	if victory then
+		self:stopClock()
+		self.phase = "result"
+		local summary = {
+			own = Rules.summary(self.config, self._full.players[self.owner]),
+			opponent = Rules.summary(self.config, self._full.players[self.enemy]),
+		}
+		for _, callback in ipairs(self.matchEndListeners) do
+			callback(victory, summary)
+		end
 	end
 end
 
-function PracticeController:getSecondsRemaining()
-	return self.secondsRemaining
-end
-
+-- Drives the tick loop off RunService.Heartbeat, accumulating to
+-- config.TICK_SECONDS -- the local stand-in for the real match's server
+-- heartbeat. Catches up (runs more than one tick in a frame) after a stall
+-- rather than dropping ticks, and stops calling in once phase leaves "live"
+-- (victory, from inside _tick above).
 function PracticeController:startClock()
-	self.secondsRemaining = self.config.PLAN_SECONDS
+	local accumulated = 0
 	self._heartbeatConnection = RunService.Heartbeat:Connect(function(dt)
-		self.secondsRemaining -= dt
-		if self.secondsRemaining <= 0 then
-			self:advanceRound()
-		else
-			for _, callback in ipairs(self.tickListeners) do
-				callback()
-			end
+		accumulated += dt
+		while accumulated >= self.config.TICK_SECONDS and self.phase == "live" do
+			accumulated -= self.config.TICK_SECONDS
+			self:_tick()
+		end
+		for _, callback in ipairs(self.tickListeners) do
+			callback()
 		end
 	end)
 end
@@ -361,10 +344,37 @@ function PracticeController:stopClock()
 end
 
 -- Ends the untimed setup phase once the player has placed exactly NUM_BASES
--- bases (§8), completing them immediately (setup isn't a resolve step -- both
--- sides' bases are meant to already be standing when round 1's PLAN begins) and
--- starting round 1's clock.
-function PracticeController:startRounds()
+-- bases (§8), completing every structure immediately regardless of readyAt --
+-- setup's bases were never meant to sit on the same build timer live-placed
+-- structures get (session 012's fix, restated here) -- arms the dummy's
+-- frontline cannon with a persistent target, and starts the live tick loop.
+function PracticeController:_startLive()
+	self._full = State.completeAllConstruction(self.config, self._full)
+
+	if self.dummyCannonCell then
+		local targetX, targetY = mirrorCell(self._full.board, self.dummyCannonCell.x, self.dummyCannonCell.y)
+		local newFull, ok = Rules.applyCommand(self.config, self._full, self.enemy, {
+			type = "target",
+			x = self.dummyCannonCell.x,
+			y = self.dummyCannonCell.y,
+			targetX = targetX,
+			targetY = targetY,
+		})
+		if ok then
+			self._full = newFull
+		end
+	end
+
+	self.phase = "live"
+	self:_publish()
+	self:_notify("match begins", true)
+	self:startClock()
+end
+
+-- Dispatches the Ready button: finishes setup once exactly NUM_BASES bases are
+-- placed. A no-op once "live" -- ending the match early isn't a concept, same
+-- as the server no-opping a "live" Ready.
+function PracticeController:ready()
 	if self.phase ~= "setup" then
 		return
 	end
@@ -372,154 +382,12 @@ function PracticeController:startRounds()
 		self:_notify(string.format("place exactly %d bases before starting", self.config.NUM_BASES), false)
 		return
 	end
-
-	local newState = State.completeConstruction(self.config, self._full)
-	self._full = newState
-	self.roundStartState = newState
-	self.pendingCommands = {}
-	self.phase = "plan"
-	self:_publish()
-	self:_notify(string.format("round %d begins", self._full.round), true)
-	self:startClock()
+	self:_startLive()
 end
 
--- Dispatches the Ready button per phase: finishes setup, or ends the current
--- PLAN phase early. A no-op during "resolve" and "result".
-function PracticeController:ready()
-	if self.phase == "setup" then
-		self:startRounds()
-	elseif self.phase == "plan" then
-		self:advanceRound()
-	end
-end
-
--- The dummy's recurring command batch for one round: its frontline cannon fires
--- straight back across the channel, every round, forever. Non-adaptive by
--- design -- there's no bot AI yet (that's its own later plan entry).
-function PracticeController:_dummyCommandsForRound()
-	local cannon = self.dummyCannonCell
-	if not cannon then
-		return {}
-	end
-	local targetX, targetY = mirrorCell(self.roundStartState.board, cannon.x, cannon.y)
-	return { { type = "target", x = cannon.x, y = cannon.y, targetX = targetX, targetY = targetY } }
-end
-
--- Ends the current PLAN phase (via Ready or clock expiry) and resolves the round
--- through Rules.resolveRound: both sides' full command batches (this player's
--- pendingCommands, the dummy's scripted one) are applied to the same pre-round
--- snapshot, matching real batch semantics -- true simultaneity, matching
--- rules.luau's own contract. The result is held in `pendingState`/`pendingVictory`
--- rather than applied immediately -- `onResolve` listeners animate the volley
--- first and call `commitResolve` when that animation finishes.
-function PracticeController:advanceRound()
-	if self.phase ~= "plan" then
-		return
-	end
-	self:stopClock()
-	self.phase = "resolve"
-
-	local config = self.config
-	local owner, enemy = self.owner, self.enemy
-
-	local ownCommands = self.pendingCommands
-	local enemyCommands = self:_dummyCommandsForRound()
-	local commandsA = (owner == "A") and ownCommands or enemyCommands
-	local commandsB = (owner == "A") and enemyCommands or ownCommands
-
-	local newState, _, victory, resolution = Rules.resolveRound(config, self.roundStartState, commandsA, commandsB)
-
-	local ownShots = (owner == "A") and resolution.shotsA or resolution.shotsB
-	local enemyShots = (owner == "A") and resolution.shotsB or resolution.shotsA
-	local destroyedEnemy = (owner == "A") and resolution.destroyedB or resolution.destroyedA
-	local destroyedOwn = (owner == "A") and resolution.destroyedA or resolution.destroyedB
-
-	local preState = resolution.preState
-	local ownStructures = preState.players[owner].structures
-
-	-- A targeted weapon that's out of range or can't afford its Energy cost simply
-	-- doesn't appear in `ownShots`, with no other signal -- surface why, since that's
-	-- otherwise indistinguishable from "nothing happened." Held on self rather than
-	-- notified immediately: commitResolve's "round begins" message would otherwise
-	-- overwrite this before it's had a chance to be read.
-	local firedFrom = {}
-	for _, s in ipairs(ownShots) do
-		firedFrom[cellKey(s.origin.x, s.origin.y)] = true
-	end
-	self.misfireMessages = {}
-	for _, weapon in ipairs(ownStructures) do
-		local def = config.STRUCTURES[weapon.typeId]
-		local weaponKey = cellKey(weapon.x, weapon.y)
-		local target = self.targets[weaponKey]
-		if def.fire_mode and not weapon.underConstruction and target and not firedFrom[weaponKey] then
-			local reason = Economy.canAfford(preState.players[owner].resources, { energy = def.energy_cost })
-					and "target out of range"
-				or "not enough Energy to fire"
-			table.insert(self.misfireMessages, string.format("%s at (%d,%d) didn't fire -- %s", weapon.typeId, weapon.x, weapon.y, reason))
-		end
-	end
-
-	self.pendingState = newState
-	self.pendingVictory = victory
-
-	local shots = {}
-	for _, s in ipairs(ownShots) do
-		table.insert(shots, s)
-	end
-	for _, s in ipairs(enemyShots) do
-		table.insert(shots, s)
-	end
-
-	local destroyed = {}
-	for _, structure in ipairs(destroyedEnemy) do
-		table.insert(destroyed, structure)
-	end
-	for _, structure in ipairs(destroyedOwn) do
-		table.insert(destroyed, structure)
-	end
-
-	local newBelief = newState.players[owner].belief
-
-	for _, callback in ipairs(self.resolveListeners) do
-		callback(preState, shots, destroyed, newBelief)
-	end
-end
-
--- Called by the render layer once the resolve animation finishes: applies the
--- round computed by advanceRound. If it ended the match, hands off to the Result
--- screen (via a Rules.summary pair, matching PlanController's contract) instead
--- of starting the next PLAN phase.
-function PracticeController:commitResolve()
-	self._full = self.pendingState
-	self.pendingState = nil
-	self.roundStartState = self._full
-	self.pendingCommands = {}
-	self:_publish()
-
-	local victory = self.pendingVictory
-	self.pendingVictory = nil
-
-	if victory then
-		self.phase = "result"
-		local summary = {
-			own = Rules.summary(self.config, self._full.players[self.owner]),
-			opponent = Rules.summary(self.config, self._full.players[self.enemy]),
-		}
-		for _, callback in ipairs(self.matchEndListeners) do
-			callback(victory, summary)
-		end
-		return
-	end
-
-	self.phase = "plan"
-	local message = string.format("round %d begins", self._full.round)
-	local ok = true
-	if #self.misfireMessages > 0 then
-		message = table.concat(self.misfireMessages, "; ")
-		ok = false
-	end
-	self:_notify(message, ok)
-	self:startClock()
-end
+-- No-op: nothing here to commit -- the tick that produced a resolution already
+-- applied it before onResolve fired. Kept only so Render.luau's existing
+-- post-animation call stays harmless.
+function PracticeController:commitResolve() end
 
 return PracticeController

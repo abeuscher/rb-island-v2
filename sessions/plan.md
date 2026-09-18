@@ -238,7 +238,7 @@ for it.
 
 ### Practice mode real-time adaptation
 
-- **Status:** open
+- **Status:** done (Session 013)
 - **Prerequisites:** MatchService real-time loop
 - **Success criterion:** `src/client/UI/PracticeController.luau` (the offline "Practice vs.
   Dummy" flow) is reworked to drive `Rules.applyCommand`/`Rules.tick` the same way the
@@ -251,6 +251,23 @@ for it.
 - **Artifact:** `src/client/UI/PracticeController.luau`, reusing `src/shared/tickView.luau`
   (the per-tick redaction module "MatchService real-time loop" introduced to replace the
   deleted `resolveView.luau`) rather than re-deriving its own copy.
+- **Outcome:** Phases collapsed to `setup → live → result`, mirroring `MatchService` minus the
+  network layer: `Rules.applyCommand` per action, a local `RunService.Heartbeat` loop
+  accumulating to `config.TICK_SECONDS` in place of a server heartbeat, and the dummy's
+  frontline cannon targeted once (persists on the structure) instead of reissued every round.
+  Live testing this session also surfaced and fixed two real bugs outside this entry's own
+  artifact list: `Rules.tick` (`src/shared/rules.luau`) was crediting each player's
+  `destructionPoints` for structures *they* lost rather than what they destroyed — invisible on
+  a straight base-elimination finish, but flips the outcome whenever a match falls back to
+  score-based deciding (fixed, regression test added); and the Result screen
+  (`src/client/UI/Screens/Result.luau`) unconditionally read "Opponent incapacitated" regardless
+  of which side actually was, plus a stale `round_limit` lookup key from session 11's
+  `time_limit` rename (both fixed). A third finding, the enemy-board full-rebuild-every-tick
+  causing instant rather than progressive fog reveal, and a fourth, the Cannon/Generator
+  opening-cost squeeze, were diagnosed but deliberately left for "Client real-time UI" and "Ship
+  polish and balance pass" respectively (see those entries below) rather than patched here.
+  `lune run test`: 83/83. `rojo build` clean. User-confirmed live in Studio across several
+  matches, including a raised ridge still blocking a shot as before.
 
 ### Bot re-adaptation
 
@@ -284,6 +301,16 @@ for it.
   Result screen) is a natural fit once scoring is event-driven rather than round-batched —
   raised in Session 010 — but is **deferred**, not required for this entry's success
   criterion. Revisit as a follow-up polish item once the above lands.
+- **Finding (Session 013):** confirmed live, in both Practice and (by shared code) the real
+  networked/bot match: `Render.luau`'s `onChange` handler calls `renderEnemyBoard()` on every
+  tick, which fully redraws the enemy fog/structure display from the current, already-updated
+  belief map. Since this runs every `TICK_SECONDS` (0.5s) — shorter than a shot's ~0.9s flight
+  animation — it overwrites the beam's progressive per-cell `reveal()` calls almost immediately,
+  so fog reveal now looks instant rather than tracing in as the shot travels. This is the same
+  "full rebuild every tick" issue Session 012 flagged as cosmetic; it's the dominant cause of
+  that symptom, not a minor one. `effectsFolder`'s own every-tick clear (a separate, smaller bug
+  that was also killing the projectile itself) was already fixed in Session 013; this one needs
+  the real event-driven rendering this entry owns.
 
 ### Sim harness rewrite
 
@@ -308,6 +335,13 @@ for it.
 - **Note:** Kept as one entry rather than split (Session 010 call) — the sim-harness port and
   the balance sweep it enables are sequential steps of the same "get a trustworthy shortlist
   again" effort, not independently useful halves.
+- **Finding (Session 013):** `STARTING_SUPPLY` (10) covers exactly one of Cannon (`supply_cost`
+  10) or Generator (`supply_cost` 8), never both, at the very start of live play. In practice
+  this meant every practice match tested this session opened with a cannon and no generator, the
+  generator never got circled back to, and the match ended in an incapacitation loss once
+  starting Energy drained with no income to replace it — regardless of score. Confirmed as a
+  configured number working as configured, not a logic bug; revisit alongside the other
+  placeholder economy values this entry already owns.
 
 ---
 

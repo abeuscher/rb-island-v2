@@ -142,6 +142,26 @@ t.test("Rules.tick fires an off-cooldown weapon automatically once its target an
 	t.expectEqual(#resolution.shotsB, 0)
 end)
 
+t.test("Rules.tick awards destruction points to the attacker, not to the side that lost the structure", function()
+	local cfg = fastConfig()
+	local state = State.new(cfg)
+	state = State.withPlayer(state, "A", { structures = { withBase(6, 7) } })
+	state = State.withPlayer(state, "B", {
+		structures = { withBase(26, 12), { typeId = "cannon", x = 24, y = 10, hp = cfg.STRUCTURES.cannon.hp, underConstruction = false } },
+	})
+
+	local afterPlace = Rules.applyCommand(cfg, state, "A", { type = "place", typeId = "cannon", x = 17, y = 10 })
+	local afterTarget = Rules.applyCommand(cfg, afterPlace, "A", { type = "target", x = 17, y = 10, targetX = 24, targetY = 10 })
+
+	-- A one-hit kill (cannon damage 10 vs. cannon hp 6): B's cannon is destroyed
+	-- this tick, so A should be the one credited for it.
+	local warmedUp = advanceTicks(cfg, afterTarget, 1)
+	local newState = Rules.tick(cfg, warmedUp)
+
+	t.expectEqual(newState.players.A.destructionPoints, config.POINTS.destroy.cannon)
+	t.expectEqual(newState.players.B.destructionPoints, 0)
+end)
+
 t.test("Rules.tick awards hit points separately from destroy points", function()
 	local cfg = fastConfig()
 	local state = State.new(cfg)
