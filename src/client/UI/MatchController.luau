@@ -1,11 +1,15 @@
 -- Owns the match wrapper (§6): the Intro/Settings/Result screens, mounted
--- once, and the session flow around them. Two ways into a match now (Session
--- 008): "Start Game" queues on the server and waits for a second real Studio
--- client to pair with (§12); "Practice vs. Dummy" mounts the old local-only
--- flow instantly, no server round trip needed. Restart re-enters whichever
--- of those the match that just ended came from. Each mount is a fresh PlanUI
--- (board, HUD, and controller) and the previous one is torn down first, so
--- neither path ever needs a rejoin.
+-- once, and the session flow around them. Three ways into a match now
+-- (Session 009 adds the third): "Start Game" queues on the server and waits
+-- for a second real Studio client to pair with (§12); "Practice vs. Dummy"
+-- mounts the old local-only flow instantly, no server round trip needed;
+-- "Play vs. Bot" is server-authoritative exactly like Start Game, just
+-- against server/Bot.luau's seat instead of a queued second player, so it
+-- reuses the same MatchFound -> mountOnline path and starts instantly since
+-- there's no one to wait for. Restart re-enters whichever of those the match
+-- that just ended came from. Each mount is a fresh PlanUI (board, HUD, and
+-- controller) and the previous one is torn down first, so no path ever needs
+-- a rejoin.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -31,7 +35,7 @@ function MatchController.start()
 
 	local activeMatch = nil
 	local lastMode = nil
-	local mountOnline, mountPractice, queueForMatch
+	local mountOnline, mountPractice, queueForMatch, startBotMatch
 
 	local function teardownMatch()
 		if activeMatch then
@@ -48,6 +52,9 @@ function MatchController.start()
 		onPractice = function()
 			mountPractice()
 		end,
+		onBot = function()
+			startBotMatch()
+		end,
 		onSettings = function()
 			settingsScreen.show()
 		end,
@@ -58,6 +65,8 @@ function MatchController.start()
 			result.hide()
 			if lastMode == "practice" then
 				mountPractice()
+			elseif lastMode == "bot" then
+				startBotMatch()
 			else
 				queueForMatch()
 			end
@@ -67,7 +76,15 @@ function MatchController.start()
 	queueForMatch = function()
 		intro.show()
 		intro.setWaiting(true)
+		lastMode = "online"
 		remotes.Command:FireServer({ type = "queueForMatch" })
+	end
+
+	-- No queueing wait, unlike queueForMatch -- the bot is always ready, so
+	-- MatchFound fires back as soon as the server round-trips (§14).
+	startBotMatch = function()
+		lastMode = "bot"
+		remotes.Command:FireServer({ type = "startBotMatch", difficulty = SettingsRegistry.getBotDifficulty() })
 	end
 
 	mountOnline = function(owner)
@@ -75,7 +92,8 @@ function MatchController.start()
 		intro.hide()
 		intro.setWaiting(false)
 		result.hide()
-		lastMode = "online"
+		-- Both queueForMatch and startBotMatch route MatchFound here; each
+		-- already set lastMode itself before firing the remote.
 
 		local handle = PlanUI.mount(owner, "online", remotes)
 		handle.controller:onMatchEnd(function(victory, summary)

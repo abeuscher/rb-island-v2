@@ -1,7 +1,7 @@
 local t = require("./testkit")
 local config = require("../src/shared/config")
 local Board = require("../src/shared/board")
-local Kit = require("../sim/archetypeKit")
+local Kit = require("../src/shared/archetypeKit")
 
 local function makeView(round, owner, structures, belief)
 	return {

@@ -4,7 +4,10 @@
 -- Start Game queue for a real second Studio client (§12), and there isn't
 -- always a second client sitting around to test with, so the offline
 -- single-player flow every prior session built stays reachable here as a
--- documented fallback rather than being deleted outright.
+-- documented fallback rather than being deleted outright. Play vs. Bot
+-- (Session 009, §14) is a third, real, server-authoritative match -- same as
+-- Start Game, just against server/Bot.luau's seat instead of a queued second
+-- player, so it starts instantly with no wait.
 
 local Intro = {}
 
@@ -24,10 +27,11 @@ local function makeButton(text, order, parent, enabled)
 	return button
 end
 
--- `handlers.onStart()`, `handlers.onPractice()`, `handlers.onSettings()`.
--- Returns a handle with `show()`/`hide()`/`setWaiting(isWaiting)` (Start Game
--- queues on the server and has to wait for a second client -- `setWaiting`
--- swaps its label and disables it while that's pending).
+-- `handlers.onStart()`, `handlers.onPractice()`, `handlers.onBot()`,
+-- `handlers.onSettings()`. Returns a handle with `show()`/`hide()`/
+-- `setWaiting(isWaiting)` (Start Game queues on the server and has to wait
+-- for a second client -- `setWaiting` swaps its label and disables it while
+-- that's pending).
 function Intro.mount(parent, handlers)
 	local overlay = Instance.new("Frame")
 	overlay.Name = "IntroOverlay"
@@ -48,7 +52,7 @@ function Intro.mount(parent, handlers)
 	local buttonColumn = Instance.new("Frame")
 	buttonColumn.AnchorPoint = Vector2.new(0.5, 0)
 	buttonColumn.Position = UDim2.new(0.5, 0, 0.4, 0)
-	buttonColumn.Size = UDim2.new(0, 280, 0, 236)
+	buttonColumn.Size = UDim2.new(0, 280, 0, 292)
 	buttonColumn.BackgroundTransparency = 1
 	buttonColumn.Parent = overlay
 
@@ -68,12 +72,17 @@ function Intro.mount(parent, handlers)
 		handlers.onPractice()
 	end)
 
-	local saveButton = makeButton("Save Game and Continue (coming soon)", 3, buttonColumn, false)
+	local botButton = makeButton("Play vs. Bot", 3, buttonColumn, true)
+	botButton.MouseButton1Click:Connect(function()
+		handlers.onBot()
+	end)
+
+	local saveButton = makeButton("Save Game and Continue (coming soon)", 4, buttonColumn, false)
 	saveButton.TextSize = 15
 	saveButton.Size = UDim2.new(0, 280, 0, 52)
 	saveButton.Active = false
 
-	local settingsButton = makeButton("Settings", 4, buttonColumn, true)
+	local settingsButton = makeButton("Settings", 5, buttonColumn, true)
 	settingsButton.MouseButton1Click:Connect(function()
 		handlers.onSettings()
 	end)

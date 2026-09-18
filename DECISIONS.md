@@ -176,3 +176,43 @@ whether two real players can end a round early by mutual agreement.
 **Call:** either the clock reaches zero or both players press Ready -- server-tracked
 per round in `server/MatchService.luau`. A single early Ready just marks that player
 waiting; it doesn't shorten the other player's turn unilaterally.
+
+## The bot is a seat in MatchService, not a PracticeController replacement (Session 009)
+
+§14 asks for a bot opponent but doesn't say where it plugs in. `PracticeController.luau`
+already offers offline solo play, but it's client-authoritative -- the client's own Lua
+environment holds the "dummy" opponent's true structure state, just unrendered. Running a
+real bot there would defeat §14's "must never read true enemy structure state" guarantee
+architecturally, not just as a code convention, and the plan file's own artifact name
+(`server/Bot.luau`) already points at the server.
+
+**Call:** the bot is a second seat in `server/MatchService.luau`'s round loop -- a virtual
+owner "B" with no real `Player` Instance, deciding once per PLAN phase the way
+`sim/harness.luau` already drives a scripted archetype, with its commands routed through
+the exact same `_handleSetupCommand`/`_handlePlanCommand`/`_handleTarget` validation a real
+player's commands go through. `PracticeController.luau` is untouched; "Play vs. Bot" is a
+third, independent option on the Intro screen alongside Start Game and Practice vs. Dummy.
+
+## Bot decision-making promoted from sim-only to shared (Session 009)
+
+`sim/archetypeKit.luau`'s candidate-cell search, spread placement, belief-map queries, and
+target selection were already exactly the View-based, own-fog-only shape §14 asks the bot
+to use -- but `sim/` isn't part of the Rojo tree `server/Bot.luau` syncs from, so it
+couldn't be required as-is from real server code.
+
+**Call:** moved (not copied) to `src/shared/archetypeKit.luau`, the same move Session 008
+made for `view.luau` when the sim's guarantee became the network's guarantee too.
+`sim/archetypes/*.luau` and `tests/archetypeKit.spec.luau` now point at the shared copy;
+there is still exactly one definition of "read only your own belief map."
+
+## Bot difficulty's Supply multiplier lives outside the rules core (Session 009)
+
+§14's three difficulty presets scale the bot's Supply income, but `Economy`/`Rules` are
+the pure, shared core every real player and every sim archetype goes through unmodified --
+adding a per-owner multiplier there would be a rules change disguised as a bot feature.
+
+**Call:** `server/MatchService.luau` adjusts owner "B"'s Supply directly, once per PLAN
+phase, right before the bot decides -- a bot-only handicap applied at the seat, not a
+change to `economy.luau`'s accrual formula. `src/shared/botDifficulty.luau` holds the three
+presets (Supply multiplier, re-probe patience, whether elevation is used deliberately) so
+the client's difficulty picker and the bot read the same three names in the same order.

@@ -3,6 +3,16 @@
 -- actually in (§12: "rate-limit all remotes").
 
 local MatchService = require(script.Parent.MatchService)
+local Difficulties = require(game:GetService("ReplicatedStorage").Shared.botDifficulty)
+
+local function isKnownDifficulty(id)
+	for _, preset in ipairs(Difficulties) do
+		if preset.id == id then
+			return true
+		end
+	end
+	return false
+end
 
 local RATE_LIMIT_PER_SECOND = 20
 local RATE_WINDOW_SECONDS = 1
@@ -65,6 +75,21 @@ function CommandHandler:handle(player, command)
 		end
 		table.insert(self.queue, player)
 		self:_tryMatchmake()
+		return
+	end
+
+	-- Starts immediately -- no matchmaking wait, since there's no second real
+	-- player to pair with (§14).
+	if command.type == "startBotMatch" then
+		if self.matchByPlayer[player] then
+			return
+		end
+		local difficulty = isKnownDifficulty(command.difficulty) and command.difficulty or "skirmish"
+		local match
+		match = MatchService.new(self.config, self.remotes, player, nil, function()
+			self.matchByPlayer[player] = nil
+		end, difficulty)
+		self.matchByPlayer[player] = match
 		return
 	end
 

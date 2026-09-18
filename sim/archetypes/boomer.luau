@@ -3,7 +3,7 @@
 -- Ignores terrain entirely.
 
 local Economy = require("../../src/shared/economy")
-local Kit = require("../archetypeKit")
+local Kit = require("../../src/shared/archetypeKit")
 
 local Boomer = {}
 

@@ -267,6 +267,15 @@ function PlanController:_onStateUpdate(payload)
 end
 
 function PlanController:_onResolveEvent(payload)
+	-- The server only ever announces resolve via this event, never a
+	-- StateUpdate -- self.phase has to move to "resolve" here too, or the
+	-- next round's "plan" StateUpdate never looks like a fresh entry into
+	-- plan (self.phase would already read "plan" from last round) and
+	-- _applyStateUpdate skips restarting the clock, leaving the display
+	-- stuck at 0 from round 2 onward.
+	self.phase = "resolve"
+	self:stopClock()
+
 	local preState = { board = payload.board }
 	for _, callback in ipairs(self.resolveListeners) do
 		callback(preState, payload.shots, payload.destroyed, payload.newBelief)

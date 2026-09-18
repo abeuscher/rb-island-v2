@@ -15,6 +15,14 @@
 -- comes first (§4 gives a round clock but doesn't say early-ready is allowed
 -- for two real players -- Session 008's own call, since a single local player
 -- never had anyone else to wait for).
+--
+-- A bot match (Session 009) gives owner "B" no real Player Instance at all --
+-- self.players.B and self.owners simply never get an entry for it. Setup and
+-- PLAN-phase commands for a bot seat run through the exact same
+-- _handleSetupCommand/_handlePlanCommand/_handleTarget paths a real player's
+-- commands do (see _runBotTurn), so a bot is held to identical validation,
+-- costs, and unlock gates -- every push-to-client call just no-ops for it
+-- (see _pushState).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -23,8 +31,10 @@ local State = require(ReplicatedStorage.Shared.state)
 local Rules = require(ReplicatedStorage.Shared.rules)
 local Structures = require(ReplicatedStorage.Shared.structures)
 local Flight = require(ReplicatedStorage.Shared.flight)
+local View = require(ReplicatedStorage.Shared.view)
 local ResolveView = require(ReplicatedStorage.Shared.resolveView)
 local Replication = require(script.Parent.Replication)
+local Bot = require(script.Parent.Bot)
 
 local MatchService = {}
 MatchService.__index = MatchService
@@ -50,13 +60,18 @@ local function footprintCellKeys(config, typeId, x, y)
 	return keys
 end
 
-function MatchService.new(config, remotes, playerA, playerB, onEnded)
+function MatchService.new(config, remotes, playerA, playerB, onEnded, botDifficulty)
 	local self = setmetatable({}, MatchService)
 	self.config = config
 	self.remotes = remotes
 	self.players = { A = playerA, B = playerB }
-	self.owners = { [playerA] = "A", [playerB] = "B" }
+	self.owners = {}
+	self.owners[playerA] = "A"
+	if playerB then
+		self.owners[playerB] = "B"
+	end
 	self.onEnded = onEnded
+	self.bot = botDifficulty and Bot.new(botDifficulty) or nil
 
 	self.state = State.new(config)
 	self.roundStartState = nil
@@ -72,13 +87,26 @@ function MatchService.new(config, remotes, playerA, playerB, onEnded)
 	self._lastVictory = nil
 
 	Replication.pushMatchFound(remotes, playerA, "A")
-	Replication.pushMatchFound(remotes, playerB, "B")
+	if playerB then
+		Replication.pushMatchFound(remotes, playerB, "B")
+	end
+
+	if self.bot then
+		for _, spot in ipairs(Bot.chooseBaseSpots(config, View.new(self.state, "B"))) do
+			self.state = State.placeStructure(config, self.state, "B", "base", spot.x, spot.y)
+		end
+		self:_handleReady("B")
+	end
 
 	return self
 end
 
 function MatchService:_pushState(owner, message, ok)
-	Replication.pushState(self.remotes, self.players[owner], self.config, self.state, owner, self.phase, self.secondsRemaining, message, ok)
+	local player = self.players[owner]
+	if not player then
+		return
+	end
+	Replication.pushState(self.remotes, player, self.config, self.state, owner, self.phase, self.secondsRemaining, message, ok)
 end
 
 function MatchService:_pushCurrent(owner)
@@ -282,6 +310,17 @@ function MatchService:_startPlanPhase()
 	self._roundToken += 1
 	local token = self._roundToken
 	self.phase = "plan"
+
+	-- Applied before roundStartState is captured below -- _advanceRound's
+	-- Rules.resolveRound replays pendingCommands.B against roundStartState,
+	-- not self.state, so the bot's Supply multiplier has to already be
+	-- baked into that snapshot or a purchase the bot could only afford with
+	-- the bonus would preview successfully here and then silently get
+	-- dropped as unaffordable during the real resolve.
+	if self.bot then
+		self.state = self:_applyBotSupplyMultiplier(self.state)
+	end
+
 	self.roundStartState = self.state
 	self.pendingCommands = { A = {}, B = {} }
 	self.readyForResolve = { A = false, B = false }
@@ -301,11 +340,47 @@ function MatchService:_startPlanPhase()
 	end
 	self._misfireMessages = nil
 
+	self:_runBotTurn()
+
 	task.delay(self.config.PLAN_SECONDS, function()
 		if self._roundToken == token then
 			self:_advanceRound()
 		end
 	end)
+end
+
+-- §14's difficulty knob, applied directly to the bot's own resources rather
+-- than in the shared economy/rules core every real player and every sim
+-- archetype also goes through unmodified -- it's a bot-only handicap, not a
+-- rules change.
+function MatchService:_applyBotSupplyMultiplier(state)
+	local extra = math.floor(self.config.SUPPLY_PER_ROUND * (self.bot.preset.supplyMultiplier - 1) + 0.5)
+	if extra == 0 then
+		return state
+	end
+	local botResources = state.players.B.resources
+	return State.withPlayer(state, "B", {
+		resources = { supply = math.max(0, botResources.supply + extra), energy = botResources.energy },
+	})
+end
+
+-- Evaluated once per PLAN phase (§14), right as it opens -- a bot never needs
+-- the clock, so its move is locked in immediately rather than waiting out
+-- config.PLAN_SECONDS alongside the real player.
+function MatchService:_runBotTurn()
+	if not self.bot then
+		return
+	end
+
+	local commands = self.bot:decide(self.config, View.new(self.state, "B"))
+	for _, command in ipairs(commands) do
+		if command.type == "target" then
+			self:_handleTarget("B", command)
+		else
+			self:_handlePlanCommand("B", command)
+		end
+	end
+	self:_handleReady("B")
 end
 
 function MatchService:_advanceRound()
@@ -325,7 +400,9 @@ function MatchService:_advanceRound()
 		local newBelief = newState.players[owner].belief
 		local view = ResolveView.new(self.config, owner, resolution, self.targets[owner], newBelief)
 		self._misfireMessages[owner] = view.misfireMessages
-		Replication.pushResolveView(self.remotes, self.players[owner], view)
+		if self.players[owner] then
+			Replication.pushResolveView(self.remotes, self.players[owner], view)
+		end
 	end
 
 	task.delay(self.config.RESOLVE_SECONDS, function()
@@ -346,7 +423,9 @@ function MatchService:_commitResolve()
 		self.phase = "result"
 		self._lastVictory = victory
 		for _, owner in ipairs(OWNERS) do
-			Replication.pushResult(self.remotes, self.players[owner], self.config, self.state, owner, victory)
+			if self.players[owner] then
+				Replication.pushResult(self.remotes, self.players[owner], self.config, self.state, owner, victory)
+			end
 		end
 		self.onEnded()
 		return

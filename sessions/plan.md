@@ -147,17 +147,49 @@ for it.
 
 ### Bot opponent
 
-- **Status:** open
+- **Status:** done (Session 009)
 - **Prerequisites:** Real two-player networking
 - **Success criterion:** The bot FSM builds its opening layout, shapes terrain, probes with cannons, suppresses generators, concentrates fire on plotted bases, and rebuilds — using only its own fog/belief map — across all three difficulty presets, and a player can lose to it.
 - **Artifact:** `server/Bot.luau`.
+- **Outcome:** Built on `src/shared/archetypeKit.luau` (promoted from `sim/` this session,
+  same move Session 008 made for `view.luau`) — the bot is a second seat in
+  `server/MatchService.luau`'s round loop (a virtual owner with no real `Player` Instance),
+  not a replacement for `PracticeController.luau`'s offline dummy. Three difficulty presets
+  live in `src/shared/botDifficulty.luau`, chosen via the first real entry in the
+  previously-empty Settings registry. "Play vs. Bot" is a third Intro option, starting
+  instantly through the same server-authoritative path as a real match. Live playtesting
+  also caught and fixed a round-clock display bug (`PlanController.luau` never transitioned
+  client-side into "resolve," so the clock never restarted past round 1 — logged in
+  DECISIONS.md alongside this session's other calls). `rojo build` clean; `lune run test`
+  green (80/80); user-confirmed live in Studio against the bot, difficulty presets untuned
+  pending §18.
+
+### Real-time combat and economy (paradigm shift)
+
+- **Status:** open
+- **Prerequisites:** Bot opponent
+- **Success criterion:** TBD — this entry is a placeholder pending Session 010's planning
+  pass, which replaces it with the real sequence of entries (rules core, MatchService,
+  bot, client UI, sim harness). Do not treat this single entry as the actual scope.
+- **Artifact:** TBD.
+- **Note:** Mid-Session-009, the round-based simultaneous-resolution model was judged a
+  turn-based mechanic grafted onto an already real-time client-server game, and not worth
+  carrying forward. The decision: replace it with per-weapon fire cooldowns, continuous
+  Supply/Energy accrual, timed construction, and a single fixed-length match clock in place
+  of MAX_ROUNDS. This touches the rules core, `MatchService`'s phase state machine, the
+  bot's decision cadence, the sim harness, and the client's round-clock UI. See
+  `sessions/010. ... — Brief.md` for the full scope carried over from that conversation.
 
 ### Ship polish and balance pass
 
-- **Status:** open
-- **Prerequisites:** Bot opponent, Simulation harness and first balance sweep
+- **Status:** open, scope pending re-derivation
+- **Prerequisites:** Bot opponent, Simulation harness and first balance sweep, Real-time combat and economy (paradigm shift)
 - **Success criterion:** Resolve-phase feedback (projectile arcs, impacts, crumbling rubble, terrain rise/fall) is polished, the README documents run/sync/asset-name/config-tuning instructions, a balance pass is applied from the sweep's shortlist, and every self-playtest check from the proposal (win, loss, blocked shot, cleared shot, stale plot, exploit check, each victory condition, restart) passes.
 - **Artifact:** polished client feedback, README, final tuned `config.luau`.
+- **Note:** "the sweep's shortlist" assumed the round-based sim harness (Session 003). Once
+  the real-time paradigm shift lands, the harness itself gets rewritten as a discrete
+  time-step simulator and every round-keyed metric gets re-derived — this entry's success
+  criterion will need updating once that shape is known, not before.
 
 ---
 

@@ -45,8 +45,58 @@ local function makeToggleRow(entry, parent, order)
 	end)
 end
 
+-- A single button that cycles through `entry.options` ({ id, label } each) on
+-- click, for a setting with more than two values (e.g. bot difficulty).
+local function makeCycleRow(entry, parent, order)
+	local row = Instance.new("Frame")
+	row.Name = entry.id
+	row.Size = UDim2.new(1, 0, 0, 32)
+	row.LayoutOrder = order
+	row.BackgroundTransparency = 1
+	row.Parent = parent
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(0.6, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = entry.label
+	label.Font = Enum.Font.SourceSans
+	label.TextSize = 16
+	label.TextColor3 = Color3.fromRGB(240, 240, 240)
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Parent = row
+
+	local button = Instance.new("TextButton")
+	button.Size = UDim2.new(0.35, 0, 1, 0)
+	button.Position = UDim2.new(0.65, 0, 0, 0)
+	button.Font = Enum.Font.SourceSansBold
+	button.TextSize = 16
+	button.TextColor3 = Color3.fromRGB(240, 240, 240)
+	button.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+	button.Parent = row
+
+	local index = 1
+	for i, option in ipairs(entry.options) do
+		if option.id == entry.default then
+			index = i
+			break
+		end
+	end
+
+	local function render()
+		button.Text = entry.options[index].label
+	end
+	render()
+
+	button.MouseButton1Click:Connect(function()
+		index = (index % #entry.options) + 1
+		render()
+		entry.apply(entry.options[index].id)
+	end)
+end
+
 local ROW_BUILDERS = {
 	toggle = makeToggleRow,
+	cycle = makeCycleRow,
 }
 
 -- Mounts (hidden) into `parent`. Returns a handle with `show()`/`hide()`.

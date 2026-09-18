@@ -2,11 +2,15 @@
 -- spread placement, belief-map queries, and legal-target selection. Every
 -- function here only ever reads a View (see view.luau) plus the pure
 -- src/shared modules, never raw MatchState -- there is nothing here an
--- archetype could use to peek at true opponent structure state.
+-- archetype could use to peek at true opponent structure state. Originally
+-- sim-only; promoted here in Session 009 so server/Bot.luau's real match
+-- opponent can build on the exact same candidate-cell/target-selection logic
+-- the sim's five scripted archetypes already use, instead of a second copy
+-- (same reasoning as view.luau's Session 008 promotion).
 
-local Board = require("../src/shared/board")
-local Structures = require("../src/shared/structures")
-local Flight = require("../src/shared/flight")
+local Board = require("./board")
+local Structures = require("./structures")
+local Flight = require("./flight")
 
 local Kit = {}
 
