@@ -1,6 +1,8 @@
--- Runs scripted matches through the shared rules core (§15). Every archetype
--- decision is made against a View (see view.luau), never raw MatchState, so
--- an archetype can only ever act on its own belief map and public terrain.
+-- Runs scripted matches through the shared rules core, time-stepped to mirror
+-- Rules.tick's fixed heartbeat (§4, restated in time terms by Session 011).
+-- Every archetype decision is made against a View (see view.luau), never raw
+-- MatchState, so an archetype can only ever act on its own belief map and
+-- public terrain.
 
 local State = require("../src/shared/state")
 local Rules = require("../src/shared/rules")
@@ -8,107 +10,100 @@ local View = require("../src/shared/view")
 
 local Harness = {}
 
-local function key(x, y)
-	return x .. "," .. y
-end
-
--- Maps every cell a weapon could be firing from this round to its typeId:
--- structures that already existed, plus anything placed this same round
--- (which completes and can fire in this same resolve -- see Session 002's
--- notes on §4's literal step order).
-local function typeAtLookup(structures, commands)
-	local map = {}
-	for _, structure in ipairs(structures) do
-		map[key(structure.x, structure.y)] = structure.typeId
-	end
-	for _, cmd in ipairs(commands) do
-		if cmd.type == "place" then
-			map[key(cmd.x, cmd.y)] = cmd.typeId
-		end
-	end
-	return map
-end
-
-local function recordShots(shots, round, events, typeAtA, typeAtB)
-	for _, event in ipairs(events) do
-		if event.type == "shot" then
-			local typeAt = (event.owner == "A") and typeAtA or typeAtB
-			table.insert(shots, {
-				owner = event.owner,
-				typeId = typeAt[key(event.weapon.x, event.weapon.y)],
-				round = round,
-				blocked = event.blocked,
-			})
-		end
-	end
-end
-
-local function checkFirstBase(firstBaseFoundRound, owner, belief, round)
-	if firstBaseFoundRound[owner] then
+local function checkFirstBase(firstBaseFoundAt, owner, belief, elapsed)
+	if firstBaseFoundAt[owner] then
 		return
 	end
 	for _, entry in pairs(belief) do
 		if entry.typeId == "base" then
-			firstBaseFoundRound[owner] = round
+			firstBaseFoundAt[owner] = elapsed
 			return
 		end
 	end
 end
 
--- Runs one match to completion (§4/§5 guarantee a victory by config.MAX_ROUNDS
--- at the latest) and returns a plain-table log: final scores and score per
--- round, every "place" command either side issued, every shot fired with its
--- weapon type and whether it was blocked, and the round each side first found
--- a real enemy base.
+-- `resolutionShots` (Rules.tick's resolution.shotsA/shotsB) already carries the
+-- firing weapon's own def and the resolved shot, so unlike the old per-round
+-- event log this needs no separate cell->typeId lookup.
+local function recordShots(shots, elapsed, owner, resolutionShots)
+	for _, s in ipairs(resolutionShots) do
+		table.insert(shots, { owner = owner, typeId = s.def.id, elapsed = elapsed, blocked = s.shot.blocked })
+	end
+end
+
+-- Runs one match to completion (Rules.tick's own time_limit condition
+-- guarantees a victory by config.MATCH_SECONDS at the latest) and returns a
+-- plain-table log: final scores and a score sample every tick, every "place"
+-- command either side issued, every shot fired with its weapon type and
+-- whether it was blocked, and the elapsed time each side first found a real
+-- enemy base.
 function Harness.runMatch(config, seed, archetypeA, archetypeB)
 	math.randomseed(seed)
 
 	local state = State.new(config)
 	local placements = {}
 	local shots = {}
-	local scoreByRound = {}
-	local firstBaseFoundRound = { A = nil, B = nil }
+	local scoreOverTime = {}
+	local firstBaseFoundAt = { A = nil, B = nil }
 	local victory = nil
 
-	for round = 1, config.MAX_ROUNDS do
-		local commandsA = archetypeA.decide(config, View.new(state, "A"))
-		local commandsB = archetypeB.decide(config, View.new(state, "B"))
-
-		local typeAtA = typeAtLookup(state.players.A.structures, commandsA)
-		local typeAtB = typeAtLookup(state.players.B.structures, commandsB)
-
-		for _, cmd in ipairs(commandsA) do
+	-- Archetypes decide on a periodic cadence rather than once per round --
+	-- config.BOT_DECIDE_INTERVAL_SECONDS, the same cadence server/Bot.luau
+	-- re-runs its own decide() on during live play (Session 015). The first
+	-- call happens at elapsed 0, alongside every archetype's own opening
+	-- placement check (`view.elapsed == 0`, renamed from `view.round == 1`).
+	local function decideAndApply(owner, archetype)
+		for _, cmd in ipairs(archetype.decide(config, View.new(state, owner))) do
 			if cmd.type == "place" then
-				table.insert(placements, { owner = "A", typeId = cmd.typeId, round = round, x = cmd.x, y = cmd.y })
+				table.insert(placements, { owner = owner, typeId = cmd.typeId, elapsed = state.elapsed, x = cmd.x, y = cmd.y })
+			end
+			local newState, ok = Rules.applyCommand(config, state, owner, cmd)
+			if ok then
+				state = newState
 			end
 		end
-		for _, cmd in ipairs(commandsB) do
-			if cmd.type == "place" then
-				table.insert(placements, { owner = "B", typeId = cmd.typeId, round = round, x = cmd.x, y = cmd.y })
-			end
-		end
+	end
 
-		local newState, events, v = Rules.resolveRound(config, state, commandsA, commandsB)
-		recordShots(shots, round, events, typeAtA, typeAtB)
+	decideAndApply("A", archetypeA)
+	decideAndApply("B", archetypeB)
+	-- Mirrors MatchService's setup -> live transition: the sim has no separate
+	-- untimed setup phase, so this opening decide-and-apply call stands in for
+	-- it -- without this, bases (and whatever else an archetype opens with)
+	-- would sit underConstruction and read as zero live bases on the very
+	-- first tick.
+	state = State.completeAllConstruction(config, state)
+	local nextDecideAt = config.BOT_DECIDE_INTERVAL_SECONDS
 
-		checkFirstBase(firstBaseFoundRound, "A", newState.players.A.belief, round)
-		checkFirstBase(firstBaseFoundRound, "B", newState.players.B.belief, round)
+	while true do
+		local newState, _, v, resolution = Rules.tick(config, state)
+		state = newState
 
-		table.insert(scoreByRound, {
-			A = Rules.finalScore(config, newState.players.A),
-			B = Rules.finalScore(config, newState.players.B),
+		recordShots(shots, state.elapsed, "A", resolution.shotsA)
+		recordShots(shots, state.elapsed, "B", resolution.shotsB)
+
+		checkFirstBase(firstBaseFoundAt, "A", state.players.A.belief, state.elapsed)
+		checkFirstBase(firstBaseFoundAt, "B", state.players.B.belief, state.elapsed)
+
+		table.insert(scoreOverTime, {
+			A = Rules.finalScore(config, state.players.A),
+			B = Rules.finalScore(config, state.players.B),
 		})
 
-		state = newState
 		victory = v
 		if victory then
 			break
+		end
+
+		if state.elapsed >= nextDecideAt then
+			decideAndApply("A", archetypeA)
+			decideAndApply("B", archetypeB)
+			nextDecideAt = state.elapsed + config.BOT_DECIDE_INTERVAL_SECONDS
 		end
 	end
 
 	return {
 		seed = seed,
-		rounds = #scoreByRound,
+		duration = state.elapsed,
 		winner = victory.winner,
 		condition = victory.condition,
 		finalScoreA = Rules.finalScore(config, state.players.A),
@@ -117,8 +112,8 @@ function Harness.runMatch(config, seed, archetypeA, archetypeB)
 		finalDestructionPointsB = state.players.B.destructionPoints,
 		placements = placements,
 		shots = shots,
-		scoreByRound = scoreByRound,
-		firstBaseFoundRound = firstBaseFoundRound,
+		scoreOverTime = scoreOverTime,
+		firstBaseFoundAt = firstBaseFoundAt,
 	}
 end
 

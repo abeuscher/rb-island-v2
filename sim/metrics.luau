@@ -3,10 +3,20 @@
 
 local Metrics = {}
 
+-- Time-keyed durations land on whatever second a tick happened to end a match
+-- on, unlike the old round-keyed values (a handful of small integers) -- binned
+-- to 10-second buckets so the histograms stay as compact and readable as the
+-- round-based ones were, rather than one row per distinct elapsed value.
+local BUCKET_SECONDS = 10
+local function bucket(elapsed)
+	return math.floor(elapsed / BUCKET_SECONDS) * BUCKET_SECONDS
+end
+
 function Metrics.matchLengthDistribution(results)
 	local histogram = {}
 	for _, r in ipairs(results) do
-		histogram[r.rounds] = (histogram[r.rounds] or 0) + 1
+		local b = bucket(r.duration)
+		histogram[b] = (histogram[b] or 0) + 1
 	end
 	return histogram
 end
@@ -74,16 +84,17 @@ function Metrics.fieldWinRates(results)
 	return rates
 end
 
--- Histogram of the round each side first found a real enemy base. Returns the
--- histogram plus how many side/match observations never found one.
-function Metrics.roundsToFirstBaseDistribution(results)
+-- Histogram of the elapsed time each side first found a real enemy base.
+-- Returns the histogram plus how many side/match observations never found one.
+function Metrics.timeToFirstBaseDistribution(results)
 	local histogram = {}
 	local neverFound = 0
 	for _, r in ipairs(results) do
 		for _, owner in ipairs({ "A", "B" }) do
-			local round = r.firstBaseFoundRound[owner]
-			if round then
-				histogram[round] = (histogram[round] or 0) + 1
+			local elapsed = r.firstBaseFoundAt[owner]
+			if elapsed then
+				local b = bucket(elapsed)
+				histogram[b] = (histogram[b] or 0) + 1
 			else
 				neverFound += 1
 			end
@@ -92,15 +103,15 @@ function Metrics.roundsToFirstBaseDistribution(results)
 	return histogram, neverFound
 end
 
--- Average of (round a base was first found / match length), across every
--- side/match that found one -- the number §15 wants in the 25-45% band.
+-- Average of (elapsed time a base was first found / match duration), across
+-- every side/match that found one -- the number §15 wants in the 25-45% band.
 function Metrics.averageFirstBaseFraction(results)
 	local totalFraction, count = 0, 0
 	for _, r in ipairs(results) do
 		for _, owner in ipairs({ "A", "B" }) do
-			local round = r.firstBaseFoundRound[owner]
-			if round then
-				totalFraction += round / r.rounds
+			local elapsed = r.firstBaseFoundAt[owner]
+			if elapsed then
+				totalFraction += elapsed / r.duration
 				count += 1
 			end
 		end
@@ -111,14 +122,14 @@ function Metrics.averageFirstBaseFraction(results)
 	return totalFraction / count
 end
 
--- Fraction of matches where the side behind at the midpoint round went on to
+-- Fraction of matches where the side behind at the midpoint tick went on to
 -- win -- reads on snowball risk. Excludes draws and matches too short to have
 -- a meaningful midpoint.
 function Metrics.comebackRate(results)
 	local comebacks, decisive = 0, 0
 	for _, r in ipairs(results) do
-		if r.winner and r.rounds >= 2 then
-			local mid = r.scoreByRound[math.floor(r.rounds / 2)]
+		if r.winner and #r.scoreOverTime >= 2 then
+			local mid = r.scoreOverTime[math.floor(#r.scoreOverTime / 2)]
 			if mid.A ~= mid.B then
 				local behind = (mid.A < mid.B) and "A" or "B"
 				decisive += 1

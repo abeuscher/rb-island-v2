@@ -413,7 +413,7 @@ for it.
 
 ### Sim harness rewrite
 
-- **Status:** open
+- **Status:** done (Session 017)
 - **Prerequisites:** Real-time rules core
 - **Success criterion:** `sim/harness.luau` moves from discrete per-round match stepping to
   discrete time-step stepping mirroring entry 1's fixed tick. Every existing round-keyed
@@ -424,6 +424,26 @@ for it.
 - **Artifact:** `sim/harness.luau`, `sim/archetypes/*`, `sim/sweep.luau`, `sim/metrics.luau`.
 - **Note:** Can run in either order relative to "Client real-time UI" — both only need "Real-
   time rules core" done first.
+- **Outcome:** Archetypes now `decide()` on a periodic cadence (`config.BOT_DECIDE_INTERVAL_
+  SECONDS`, same as `server/Bot.luau`) instead of once per round, applying commands immediately
+  via `Rules.applyCommand` and stepping the match with `Rules.tick`. The five archetypes' dead
+  `view.round`/`UNLOCK_ROUND`/`unlock_round` references (dead since Session 011) are now
+  `view.elapsed`/`UNLOCK_TIME`/`unlock_time`. Found and fixed two real bugs on the first real
+  runs: freshly-placed structures start `underConstruction`, so every match instantly hit
+  `base_elimination` until the harness called `State.completeAllConstruction` right after the
+  opening `decide()` call (mirroring `MatchService`'s setup → live transition); and the sweep's
+  `generatorHeavy` POINTS preset replaced `config.POINTS` wholesale with a Session-003-era
+  literal missing the `reveal`/`hit`/`missile`/`scout` entries added since, crashing the moment
+  anything got revealed — fixed by mutating the real table in place instead of replacing it.
+  Time-keyed durations land on scattered elapsed values rather than a handful of round numbers,
+  so `matchLengthDistribution`/`timeToFirstBaseDistribution` bin to 10-second buckets to stay as
+  compact as the old round-based histograms. `lune run test`: 87/87. `lune run sim` (5,000
+  matches) and `lune run sweep` (all 24 config points, three passes) both complete and print
+  every metric. The sweep still finds zero survivors — the same structural finding Session 003
+  made (cannon block rate near 0%, standing points reward structures over terrain), restated in
+  time terms rather than re-litigated; `sim/output/shortlist.md` has the fresh numbers.
+  Missile/scout stayed out of the sim archetypes (cannon/mortar only), per the Open Gate's
+  scoping call — user-confirmed, matching the real bot's own scout-drone deferral.
 
 ### Ship polish and balance pass
 
@@ -441,6 +461,38 @@ for it.
   starting Energy drained with no income to replace it — regardless of score. Confirmed as a
   configured number working as configured, not a logic bug; revisit alongside the other
   placeholder economy values this entry already owns.
+- **Finding (Session 017):** all four prerequisites are now done — this entry is fully
+  unblocked. Its own fresh sweep shortlist (the thing its success criterion says it needs)
+  found zero survivors, same structural cause Session 003 found: standing points reward
+  structures over terrain, and cannon block rate stays near 0% since a fully-informed scripted
+  agent never targets a ridge it can see visibly. Neither is fixable by the config knobs this
+  sweep tunes. See `sim/output/shortlist.md` for the current numbers — re-deriving this entry's
+  scope means deciding whether/how to address those two structural issues before a balance pass
+  can mean anything, not just re-running the sweep with different knobs.
+
+### Scout drone reveal shape
+
+- **Status:** open
+- **Prerequisites:** none — "New weapon types: missiles and scout drones" (done, Session 016) is
+  the only thing this builds on.
+- **Success criterion:** A fired scout drone reveals a 3-cell-wide corridor along its flight
+  path from the firing structure's cell to its target, plus a 4x4 block around the target cell.
+  The cannon's beam reveal and the mortar/missile impact reveal (impact cell + its four
+  orthogonal neighbours) are unchanged. `Fog.revealedCells` branches on `def.reveal_mode` —
+  today a per-weapon field in `config.luau` (`"beam"` for cannon, `"impact"` for everything
+  else) that nothing reads, so the shape is keyed off `fire_mode` and every arc weapon shares
+  the mortar's 5-cell reveal — with a new `"scout"` value for the drone. `Fog.applyReveal` takes
+  the firing weapon's origin cell so there's a start point to walk the corridor from; the caller
+  in `rules.luau` already holds it. Covered by fog specs (corridor width, target block, cells
+  clipped at the board edge, unchanged cannon/mortar shapes); `lune run test` passes;
+  user-confirmed live in Studio.
+- **Artifact:** `src/shared/fog.luau`, `src/shared/rules.luau` (thread origin through to
+  `applyReveal`), `src/shared/config.luau` (`reveal_mode = "scout"`), plus `fog.spec.luau` /
+  `rules.spec.luau`.
+- **Note (raised Session 017):** the point of the change is that the cannon currently reveals
+  more ground than the weapon whose whole job is recon, which is backwards. The 3-wide corridor
+  and 4x4 block are sized against today's island; revisit both numbers if the board is ever
+  enlarged, so the drone's footprint stays proportionate.
 
 ---
 

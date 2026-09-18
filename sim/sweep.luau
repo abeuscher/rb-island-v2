@@ -48,11 +48,13 @@ function Sweep.cartesian(dimensions)
 	return combos
 end
 
-local GENERATOR_HEAVY_POINTS = {
-	destroy = { base = 100, mortar = 35, generator = 50, cannon = 20 },
-	standing = { base = 50, mortar = 15, generator = 20, cannon = 10 },
-}
-
+-- Doubles the generator's destroy/standing points on top of whatever config.POINTS
+-- already has, rather than replacing the whole table with a separate hand-maintained
+-- literal -- a "generatorHeavy" preset frozen at Session 003 replaced config.POINTS
+-- wholesale with a copy missing the reveal/hit categories Session 007 later added
+-- (and the missile/scout entries Session 016 added), crashing the moment anything
+-- got revealed. Mutating the real, already-complete config.POINTS can't drift out
+-- of sync with the roster the same way again.
 local function applyOverride(config, name, value)
 	if name == "CANNON_RANGE" then
 		config.STRUCTURES.cannon.range = value
@@ -60,7 +62,8 @@ local function applyOverride(config, name, value)
 		config.STRUCTURES.mortar.range = value
 	elseif name == "POINTS_PRESET" then
 		if value == "generatorHeavy" then
-			config.POINTS = deepClone(GENERATOR_HEAVY_POINTS)
+			config.POINTS.destroy.generator = 50
+			config.POINTS.standing.generator = 20
 		end
 	else
 		config[name] = value
@@ -90,28 +93,28 @@ function Sweep.evaluate(config, matchesPerPair, baseSeed)
 	return {
 		maxFieldWinRate = maxFieldWinRate,
 		cannonBlockRate = Metrics.cannonBlockRate(results) or 0,
-		roundLimitShare = conditions.round_limit or 0,
+		timeLimitShare = conditions.time_limit or 0,
 		averageFirstBaseFraction = Metrics.averageFirstBaseFraction(results) or 0,
 	}
 end
 
 -- A config survives if no archetype dominates the field, cannons are neither
--- cosmetic nor dead weight, and the match isn't decided by the round limit
+-- cosmetic nor dead weight, and the match isn't decided by the time limit
 -- almost every time (§15).
 function Sweep.survives(measurement)
 	return measurement.maxFieldWinRate <= 0.60
 		and measurement.cannonBlockRate >= 0.15
 		and measurement.cannonBlockRate <= 0.85
-		and measurement.roundLimitShare <= 0.90
+		and measurement.timeLimitShare <= 0.90
 end
 
 -- Lower is better: distance of the field win rate from a fair 50/50, distance
 -- of the cannon block rate from a healthy midpoint, and a penalty for leaning
--- on the round limit to decide most matches.
+-- on the time limit to decide most matches.
 function Sweep.badness(measurement)
 	return math.abs(measurement.maxFieldWinRate - 0.5) * 2
 		+ math.abs(measurement.cannonBlockRate - 0.5)
-		+ math.max(0, measurement.roundLimitShare - 0.5)
+		+ math.max(0, measurement.timeLimitShare - 0.5)
 end
 
 -- Evaluates every combo in `dimensions` layered on top of `baseOverrides`,

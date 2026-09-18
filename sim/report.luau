@@ -22,7 +22,7 @@ function Report.writeMatchLogJsonl(path, results)
 end
 
 function Report.writeAggregateCsv(path, results)
-	local lines = { "seed,archetypeA,archetypeB,rounds,winner,condition,finalScoreA,finalScoreB" }
+	local lines = { "seed,archetypeA,archetypeB,duration,winner,condition,finalScoreA,finalScoreB" }
 	for _, r in ipairs(results) do
 		table.insert(
 			lines,
@@ -30,7 +30,7 @@ function Report.writeAggregateCsv(path, results)
 				r.seed,
 				r.archetypeA,
 				r.archetypeB,
-				r.rounds,
+				r.duration,
 				r.winner or "draw",
 				r.condition,
 				r.finalScoreA,
@@ -70,7 +70,7 @@ local function sortedKeys(t)
 end
 
 -- A plain-text report covering every metric in §15: win-rate matrix,
--- rounds-to-first-base distribution, match-length distribution, comeback
+-- time-to-first-base distribution, match-length distribution, comeback
 -- rate, purchase share, cannon block rate, and victory-condition
 -- distribution.
 function Report.summaryText(config, results)
@@ -102,19 +102,19 @@ function Report.summaryText(config, results)
 	end
 	say("")
 
-	say("Rounds to first real base found (target: 25-45% of match length):")
+	say("Time to first real base found, binned to 10s (target: 25-45% of match length):")
 	local avgFraction = Metrics.averageFirstBaseFraction(results)
-	local histogram, neverFound = Metrics.roundsToFirstBaseDistribution(results)
+	local histogram, neverFound = Metrics.timeToFirstBaseDistribution(results)
 	say(string.format("  average: %s of match length, never found: %d", formatPercent(avgFraction), neverFound))
-	for _, round in ipairs(sortedKeys(histogram)) do
-		say(string.format("  round %s: %d", round, histogram[round]))
+	for _, elapsed in ipairs(sortedKeys(histogram)) do
+		say(string.format("  %d-%ds: %d", elapsed, elapsed + 9, histogram[elapsed]))
 	end
 	say("")
 
-	say("Match length distribution (rounds):")
+	say("Match length distribution, binned to 10s:")
 	local lengths = Metrics.matchLengthDistribution(results)
-	for _, round in ipairs(sortedKeys(lengths)) do
-		say(string.format("  %s rounds: %d matches", round, lengths[round]))
+	for _, duration in ipairs(sortedKeys(lengths)) do
+		say(string.format("  %d-%ds: %d matches", duration, duration + 9, lengths[duration]))
 	end
 	say("")
 

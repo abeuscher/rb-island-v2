@@ -17,7 +17,7 @@ local BASE_SEED = 2000
 
 local function formatOverrides(overrides)
 	local parts = {}
-	for _, name in ipairs({ "RAISE_COST", "CANNON_RANGE", "MORTAR_RANGE", "ENERGY_PER_GENERATOR", "SUPPLY_PER_ROUND", "RECLAIM_COST", "MAX_ROUNDS", "POINTS_PRESET" }) do
+	for _, name in ipairs({ "RAISE_COST", "CANNON_RANGE", "MORTAR_RANGE", "ENERGY_PER_GENERATOR_PER_SECOND", "SUPPLY_PER_SECOND", "RECLAIM_COST", "MATCH_SECONDS", "POINTS_PRESET" }) do
 		if overrides[name] ~= nil then
 			table.insert(parts, name .. "=" .. tostring(overrides[name]))
 		end
@@ -27,33 +27,37 @@ end
 
 local function formatMeasurement(m)
 	return string.format(
-		"maxFieldWinRate=%.0f%% cannonBlockRate=%.0f%% roundLimitShare=%.0f%% firstBaseFraction=%.0f%%",
+		"maxFieldWinRate=%.0f%% cannonBlockRate=%.0f%% timeLimitShare=%.0f%% firstBaseFraction=%.0f%%",
 		m.maxFieldWinRate * 100,
 		m.cannonBlockRate * 100,
-		m.roundLimitShare * 100,
+		m.timeLimitShare * 100,
 		m.averageFirstBaseFraction * 100
 	)
 end
 
-print("Pass 1: RAISE_COST x CANNON_RANGE x MORTAR_RANGE x ENERGY_PER_GENERATOR")
+print("Pass 1: RAISE_COST x CANNON_RANGE x MORTAR_RANGE x ENERGY_PER_GENERATOR_PER_SECOND")
 local pass1Points, pass1Best = Sweep.runPass(config, {}, {
 	RAISE_COST = { 2, 6 },
 	CANNON_RANGE = { 8, 12 },
 	MORTAR_RANGE = { 12, 20 },
-	ENERGY_PER_GENERATOR = { 1, 3 },
+	-- Old per-round values {1, 3} scaled by the ~20s a testing round used to
+	-- take (config.luau's own conversion factor for this exact rework).
+	ENERGY_PER_GENERATOR_PER_SECOND = { 0.05, 0.15 },
 }, MATCHES_PER_PAIR, BASE_SEED)
 print(string.format("  best: %s -- %s", formatOverrides(pass1Best.overrides), formatMeasurement(pass1Best.measurement)))
 
-print("Pass 2: SUPPLY_PER_ROUND x RECLAIM_COST (on top of pass 1's best)")
+print("Pass 2: SUPPLY_PER_SECOND x RECLAIM_COST (on top of pass 1's best)")
 local pass2Points, pass2Best = Sweep.runPass(config, pass1Best.overrides, {
-	SUPPLY_PER_ROUND = { 8, 14 },
+	-- Old per-round values {8, 14}, same /20 scaling as above.
+	SUPPLY_PER_SECOND = { 0.4, 0.7 },
 	RECLAIM_COST = { 8, 16 },
 }, MATCHES_PER_PAIR, BASE_SEED)
 print(string.format("  best: %s -- %s", formatOverrides(pass2Best.overrides), formatMeasurement(pass2Best.measurement)))
 
-print("Pass 3: MAX_ROUNDS x POINTS table (on top of pass 2's best)")
+print("Pass 3: MATCH_SECONDS x POINTS table (on top of pass 2's best)")
 local pass3Points, pass3Best = Sweep.runPass(config, pass2Best.overrides, {
-	MAX_ROUNDS = { 5, 10 },
+	-- Old MAX_ROUNDS values {5, 10}, same /20 scaling inverted (x20).
+	MATCH_SECONDS = { 100, 200 },
 	POINTS_PRESET = { "default", "generatorHeavy" },
 }, MATCHES_PER_PAIR, BASE_SEED)
 print(string.format("  best: %s -- %s", formatOverrides(pass3Best.overrides), formatMeasurement(pass3Best.measurement)))
@@ -85,7 +89,7 @@ for i = 1, math.min(5, #survivors) do
 end
 
 print("")
-print(string.format("%d of %d points survived the filter (max field win rate <= 60%%, cannon block rate 15-85%%, round limit <= 90%% of matches).", #survivors, #allPoints))
+print(string.format("%d of %d points survived the filter (max field win rate <= 60%%, cannon block rate 15-85%%, time limit <= 90%% of matches).", #survivors, #allPoints))
 print(string.format("Shortlist: %d configs", #shortlist))
 for _, p in ipairs(shortlist) do
 	print(string.format("  %s -- %s", formatOverrides(p.overrides), formatMeasurement(p.measurement)))
@@ -104,25 +108,22 @@ local lines = {
 if #shortlist == 0 then
 	table.insert(lines, "## No swept point survived")
 	table.insert(lines, "")
-	table.insert(lines, "Every point tried, up to MAX_ROUNDS=20, ends 84-100% of the time on the round limit,")
-	table.insert(lines, "decided by points rather than combat, with one archetype (`boomer`) taking 85-91% of")
-	table.insert(lines, "the field regardless of which knob moved. A follow-up probe (not part of the grid above)")
-	table.insert(lines, "pushed MAX_ROUNDS to 40: boomer's field win rate plateaus at 91% rather than continuing")
-	table.insert(lines, "to climb, so this isn't a match-length problem that a longer clock would fix on its own.")
-	table.insert(lines, "")
-	table.insert(lines, "Two structural causes, neither of which a config knob in this sweep can reach:")
+	table.insert(lines, "Session 003's original (round-based) sweep found the same zero-survivor result, for two")
+	table.insert(lines, "structural reasons neither a config knob in this sweep can reach -- restated here in time")
+	table.insert(lines, "terms after the harness's Session 017 real-time port; see this run's own numbers above")
+	table.insert(lines, "and in the point list below for whether the underlying shares/rates have shifted.")
 	table.insert(lines, "")
 	table.insert(lines, "1. **Standing points reward structures, not terrain.** Raising, lowering, and reclaiming")
 	table.insert(lines, "   score nothing (§5.4). `boomer` spends every Supply point on generators and weapons;")
 	table.insert(lines, "   `highground`/`defilade`/`sprawl` spend a share of theirs on terrain instead, and lose the")
-	table.insert(lines, "   round-limit points race every time regardless of how the terrain investment plays out")
-	table.insert(lines, "   tactically. Since round_limit decides 84-100% of matches at every swept MAX_ROUNDS, this")
-	table.insert(lines, "   bias dominates the outcome almost by itself.")
+	table.insert(lines, "   time-limit points race every time regardless of how the terrain investment plays out")
+	table.insert(lines, "   tactically. Whenever time_limit decides most matches at a swept MATCH_SECONDS, this bias")
+	table.insert(lines, "   dominates the outcome almost by itself.")
 	table.insert(lines, "2. **Cannon block rate stays near 0% because terrain is fully public (§11).** Every")
 	table.insert(lines, "   archetype here checks `Flight.resolveShot` before choosing a target and only ever fires")
 	table.insert(lines, "   at cells it can already tell are clear -- a rational agent with full terrain information")
 	table.insert(lines, "   simply never fires into a ridge it can see. The handful of blocked shots that do happen")
-	table.insert(lines, "   come from a same-round terrain edit changing the board after targets were already chosen.")
+	table.insert(lines, "   come from a terrain edit changing the board after a target was already chosen.")
 	table.insert(lines, "   RAISE_COST/CANNON_RANGE/MORTAR_RANGE tuning can't fix this -- it's a targeting-behavior")
 	table.insert(lines, "   effect, not a numeric one.")
 	table.insert(lines, "")

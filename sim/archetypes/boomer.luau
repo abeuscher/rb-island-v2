@@ -22,7 +22,7 @@ function Boomer.decide(config, view)
 		return false
 	end
 
-	if view.round == 1 then
+	if view.elapsed == 0 then
 		local baseSpots = Kit.spreadPick(Kit.candidateCells(config, view, "base", reserved), config.NUM_BASES)
 		for _, spot in ipairs(baseSpots) do
 			table.insert(commands, { type = "place", typeId = "base", x = spot.x, y = spot.y })
@@ -45,7 +45,7 @@ function Boomer.decide(config, view)
 		-- the remaining budget.
 		for _, typeId in ipairs({ "mortar", "cannon" }) do
 			local def = config.STRUCTURES[typeId]
-			if view.round >= def.unlock_round then
+			if view.elapsed >= def.unlock_time then
 				local spots = Kit.candidateCells(config, view, typeId, reserved)
 				while #spots > 0 and Economy.canAfford(resources, { supply = def.supply_cost }) do
 					local spot = spots[math.random(#spots)]

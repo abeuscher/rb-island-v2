@@ -22,7 +22,7 @@ function Mortarline.decide(config, view)
 		return false
 	end
 
-	if view.round == 1 then
+	if view.elapsed == 0 then
 		local baseSpots = Kit.spreadPick(Kit.candidateCells(config, view, "base", reserved), config.NUM_BASES)
 		for _, spot in ipairs(baseSpots) do
 			table.insert(commands, { type = "place", typeId = "base", x = spot.x, y = spot.y })
@@ -39,7 +39,7 @@ function Mortarline.decide(config, view)
 				Kit.reserve(reserved, config, "generator", spot.x, spot.y)
 			end
 		end
-	elseif view.round >= config.UNLOCK_ROUND.mortar and trySpend({ supply = config.STRUCTURES.mortar.supply_cost }) then
+	elseif view.elapsed >= config.STRUCTURES.mortar.unlock_time and trySpend({ supply = config.STRUCTURES.mortar.supply_cost }) then
 		local spots = Kit.candidateCells(config, view, "mortar", reserved)
 		if #spots > 0 then
 			local spot = spots[math.random(#spots)]

@@ -37,7 +37,7 @@ function Defilade.decide(config, view)
 		return false
 	end
 
-	if view.round == 1 then
+	if view.elapsed == 0 then
 		local baseSpots = Kit.spreadPick(Kit.candidateCells(config, view, "base", reserved), config.NUM_BASES)
 		for _, spot in ipairs(baseSpots) do
 			table.insert(commands, { type = "place", typeId = "base", x = spot.x, y = spot.y })
@@ -54,7 +54,7 @@ function Defilade.decide(config, view)
 				Kit.reserve(reserved, config, "generator", spot.x, spot.y)
 			end
 		end
-	elseif view.round >= config.UNLOCK_ROUND.terrain_edit then
+	elseif view.elapsed >= config.UNLOCK_TIME.terrain_edit then
 		local raised = false
 		for _, base in ipairs(Kit.liveStructures(view, "base")) do
 			for _, cell in ipairs(shieldCells(config, view, base)) do

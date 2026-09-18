@@ -23,7 +23,7 @@ function Highground.decide(config, view)
 		return false
 	end
 
-	if view.round == 1 then
+	if view.elapsed == 0 then
 		local baseSpots = Kit.spreadPick(Kit.candidateCells(config, view, "base", reserved), config.NUM_BASES)
 		for _, spot in ipairs(baseSpots) do
 			table.insert(commands, { type = "place", typeId = "base", x = spot.x, y = spot.y })
@@ -45,7 +45,7 @@ function Highground.decide(config, view)
 		-- arm it, then move on to the next one.
 		local peak = Kit.frontlineCells(config, view, "cannon", reserved)[1]
 		if peak then
-			if view.round >= config.UNLOCK_ROUND.terrain_edit and Kit.wouldSucceed(Board.raise, view.board, peak.x, peak.y) then
+			if view.elapsed >= config.UNLOCK_TIME.terrain_edit and Kit.wouldSucceed(Board.raise, view.board, peak.x, peak.y) then
 				if trySpend({ supply = config.RAISE_COST }) then
 					table.insert(commands, { type = "raise", x = peak.x, y = peak.y })
 				end
