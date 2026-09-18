@@ -48,13 +48,34 @@ function RoundClock.mount(parent, controller)
 	readyButton.Parent = frame
 
 	readyButton.MouseButton1Click:Connect(function()
-		controller:advanceRound()
+		controller:ready()
 	end)
 
+	-- Calls attention to Ready once setup's base count is satisfied, so the
+	-- player isn't left hunting for what to do next.
+	local readyHighlight = Instance.new("UIStroke")
+	readyHighlight.Name = "ReadyHighlight"
+	readyHighlight.Thickness = 3
+	readyHighlight.Color = Color3.fromRGB(255, 255, 255)
+	-- Contextual (the default) strokes the button's TEXT for a text-bearing
+	-- object; Border strokes the button's own rectangle, which is the outline
+	-- that's actually wanted here.
+	readyHighlight.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	readyHighlight.Enabled = false
+	readyHighlight.Parent = readyButton
+
 	local function refresh()
-		if controller.phase == "resolve" then
+		readyHighlight.Enabled = controller.phase == "setup" and controller:countOwnBases() == controller.config.NUM_BASES
+
+		if controller.phase == "setup" then
+			roundLabel.Text = "Setup"
+			clockLabel.Text = string.format("%d/%d bases placed", controller:countOwnBases(), controller.config.NUM_BASES)
+		elseif controller.phase == "resolve" then
 			roundLabel.Text = string.format("Round %d -- RESOLVE", controller.state.round)
 			clockLabel.Text = "Resolving..."
+		elseif controller.phase == "result" then
+			roundLabel.Text = "Match over"
+			clockLabel.Text = ""
 		else
 			roundLabel.Text = string.format("Round %d -- PLAN", controller.state.round)
 			clockLabel.Text = string.format("%ds remaining", math.max(0, math.ceil(controller:getSecondsRemaining())))

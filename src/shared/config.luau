@@ -35,6 +35,12 @@ return {
 	POINTS = {
 		destroy = { base = 100, mortar = 35, generator = 25, cannon = 20 },
 		standing = { base = 50, mortar = 15, generator = 10, cannon = 10 },
+		-- Scouting and landing damage are worth something on their own, not just
+		-- the kill -- otherwise the only winning move is turtling structures to
+		-- the final whistle. Roughly 20%/10% of a kill's value; a guess like every
+		-- other POINTS entry, pending a real balance pass (§15/§18).
+		reveal = { base = 20, mortar = 7, generator = 5, cannon = 4 },
+		hit = { base = 10, mortar = 4, generator = 3, cannon = 2 },
 	},
 
 	STRUCTURES = {

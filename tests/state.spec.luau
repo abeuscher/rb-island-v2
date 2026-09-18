@@ -22,6 +22,15 @@ t.test("placeStructure spends Supply and leaves the other player untouched", fun
 	t.expectEqual(newState.players.B.resources.supply, config.SUPPLY_PER_ROUND)
 end)
 
+t.test("placeStructure counts toward structuresBuilt even after the structure is later lost", function()
+	local state = State.new(config)
+	local afterPlace = State.placeStructure(config, state, "A", "generator", 6, 7)
+	t.expectEqual(afterPlace.players.A.structuresBuilt, 1)
+
+	local afterBulldoze = State.bulldozeStructure(config, afterPlace, "A", 6, 7)
+	t.expectEqual(afterBulldoze.players.A.structuresBuilt, 1)
+end)
+
 t.test("placeStructure rejects a type not yet unlocked, without spending anything", function()
 	local state = State.new(config)
 	local unchanged, ok, err = State.placeStructure(config, state, "A", "mortar", 6, 7)

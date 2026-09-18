@@ -53,6 +53,26 @@ function Board.new(config)
 	}
 end
 
+-- Each player's starting-island rectangle, derived from config alone (no board
+-- instance needed) -- lets a caller place things relative to an island's edges
+-- without walking every owned cell. Mirrors Board.new's own territory math.
+function Board.islandBounds(config, owner)
+	local width = config.BOARD_WIDTH
+	local height = config.BOARD_HEIGHT
+	local channelWidth = config.CHANNEL_WIDTH
+	local islandSize = config.ISLAND_SIZE
+	local sideWidth = (width - channelWidth) / 2
+	local channelStart = sideWidth + 1
+	local channelEnd = sideWidth + channelWidth
+	local rowStart = math.floor((height - islandSize) / 2) + 1
+	local rowEnd = rowStart + islandSize - 1
+
+	if owner == "A" then
+		return channelStart - islandSize, channelStart - 1, rowStart, rowEnd
+	end
+	return channelEnd + 1, channelEnd + islandSize, rowStart, rowEnd
+end
+
 function Board.inBounds(board, x, y)
 	return x >= 1 and x <= board.width and y >= 1 and y <= board.height
 end

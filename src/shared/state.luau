@@ -15,7 +15,14 @@ local function newPlayerState(config)
 		structures = Structures.new(),
 		belief = Fog.new(),
 		destructionPoints = 0,
+		destructionPointsByType = { base = 0, generator = 0, cannon = 0, mortar = 0 },
+		revealPoints = 0,
+		hitPoints = 0,
 		structuresLost = 0,
+		structuresBuilt = 0,
+		shotsFired = 0,
+		shotsHit = 0,
+		shotsBlocked = 0,
 		incapableStreak = 0,
 	}
 end
@@ -75,7 +82,11 @@ function State.placeStructure(config, state, owner, typeId, x, y)
 		return state, false, err2
 	end
 
-	return withPlayer(state, owner, { resources = newResources, structures = newStructures }), true, nil
+	return withPlayer(state, owner, {
+		resources = newResources,
+		structures = newStructures,
+		structuresBuilt = player.structuresBuilt + 1,
+	}), true, nil
 end
 
 function State.bulldozeStructure(config, state, owner, x, y)

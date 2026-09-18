@@ -9,7 +9,13 @@
 
 local BuildPalette = {}
 
-local TOOLS = {
+-- Setup only ever offers base placement (§8: "3 placed during setup", not bought
+-- with Supply during PLAN) -- once rounds start, base is never offered again.
+local TOOLS_SETUP = {
+	{ id = "place:base", label = "Place Base" },
+	{ id = "bulldoze", label = "Bulldoze" },
+}
+local TOOLS_ROUNDS = {
 	{ id = "place:generator", label = "Build Generator" },
 	{ id = "place:cannon", label = "Build Cannon" },
 	{ id = "place:mortar", label = "Build Mortar" },
@@ -59,19 +65,53 @@ function BuildPalette.mount(parent, controller)
 		end
 	end
 
-	for order, tool in ipairs(TOOLS) do
-		local button = makeButton(tool.label, order, frame)
-		toolButtons[tool.id] = button
-		button.MouseButton1Click:Connect(function()
-			controller:setTool(tool.id)
-			setActive(tool.id)
-		end)
+	local toolFrame = Instance.new("Frame")
+	toolFrame.Name = "Tools"
+	toolFrame.Size = UDim2.new(1, 0, 0, 0)
+	toolFrame.AutomaticSize = Enum.AutomaticSize.Y
+	toolFrame.LayoutOrder = 1
+	toolFrame.BackgroundTransparency = 1
+	toolFrame.Parent = frame
+
+	local toolLayout = Instance.new("UIListLayout")
+	toolLayout.Padding = UDim.new(0, 4)
+	toolLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	toolLayout.Parent = toolFrame
+
+	-- The tool set only ever changes once, from setup's restricted set to the
+	-- full round set, so this only rebuilds the buttons on that one transition.
+	local builtForPhase = nil
+	local function rebuildTools()
+		local phase = controller.phase
+		if builtForPhase == phase then
+			return
+		end
+		builtForPhase = phase
+
+		for _, child in ipairs(toolFrame:GetChildren()) do
+			if child:IsA("TextButton") then
+				child:Destroy()
+			end
+		end
+		toolButtons = {}
+		controller:setTool("none")
+		setActive(nil)
+
+		local tools = (phase == "setup") and TOOLS_SETUP or TOOLS_ROUNDS
+		for order, tool in ipairs(tools) do
+			local button = makeButton(tool.label, order, toolFrame)
+			toolButtons[tool.id] = button
+			button.MouseButton1Click:Connect(function()
+				controller:setTool(tool.id)
+				setActive(tool.id)
+			end)
+		end
 	end
 
 	local weaponHeader = Instance.new("TextLabel")
 	weaponHeader.Name = "WeaponHeader"
 	weaponHeader.Size = UDim2.new(1, 0, 0, 24)
-	weaponHeader.LayoutOrder = #TOOLS + 1
+	weaponHeader.LayoutOrder = 2
 	weaponHeader.Text = "Weapons"
 	weaponHeader.Font = Enum.Font.SourceSansBold
 	weaponHeader.TextSize = 16
@@ -83,7 +123,7 @@ function BuildPalette.mount(parent, controller)
 	weaponList.Name = "WeaponList"
 	weaponList.Size = UDim2.new(1, 0, 0, 0)
 	weaponList.AutomaticSize = Enum.AutomaticSize.Y
-	weaponList.LayoutOrder = #TOOLS + 2
+	weaponList.LayoutOrder = 3
 	weaponList.BackgroundTransparency = 1
 	weaponList.Parent = frame
 
@@ -93,6 +133,12 @@ function BuildPalette.mount(parent, controller)
 	weaponListLayout.Parent = weaponList
 
 	local function refresh()
+		rebuildTools()
+
+		local showWeapons = controller.phase ~= "setup"
+		weaponHeader.Visible = showWeapons
+		weaponList.Visible = showWeapons
+
 		for _, child in ipairs(weaponList:GetChildren()) do
 			if child:IsA("TextButton") then
 				child:Destroy()

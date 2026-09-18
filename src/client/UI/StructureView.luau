@@ -10,11 +10,13 @@ local Board = require(ReplicatedStorage.Shared.board)
 local StructureView = {}
 
 local STRUCTURE_COLORS = {
+	base = Color3.fromRGB(70, 130, 200),
 	generator = Color3.fromRGB(224, 200, 40),
 	cannon = Color3.fromRGB(180, 60, 50),
 	mortar = Color3.fromRGB(120, 70, 170),
 }
 local GLYPHS = {
+	base = "\u{2302}",
 	generator = "\u{26A1}",
 	cannon = "\u{25B2}",
 	mortar = "\u{25D3}",

@@ -1,6 +1,8 @@
--- Mounts the plan-phase UI: build palette, terrain tools, targeting list, and
--- round clock, wired to a local PlanController. See Session 005's brief for why
--- this is local-only rather than server-authoritative.
+-- Mounts one match's board/HUD: setup, build palette, terrain tools, targeting
+-- list, and round clock, wired to a local PlanController. See Session 005's
+-- brief for why this is local-only rather than server-authoritative. Owned by
+-- MatchController, which mounts a fresh one per match (Start Game / Restart)
+-- and tears the old one down via the handle this returns.
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -22,25 +24,29 @@ function PlanUI.mount(owner)
 	local player = Players.LocalPlayer
 	local controller = PlanController.new(Config, owner)
 
+	local worldFolder = Instance.new("Folder")
+	worldFolder.Name = "Match"
+	worldFolder.Parent = Workspace
+
 	local boardFolder = Instance.new("Folder")
 	boardFolder.Name = "Board"
-	boardFolder.Parent = Workspace
+	boardFolder.Parent = worldFolder
 
 	local structureFolder = Instance.new("Folder")
 	structureFolder.Name = "Structures"
-	structureFolder.Parent = Workspace
+	structureFolder.Parent = worldFolder
 
 	local cursorFolder = Instance.new("Folder")
 	cursorFolder.Name = "Cursor"
-	cursorFolder.Parent = Workspace
+	cursorFolder.Parent = worldFolder
 
 	local enemyFolder = Instance.new("Folder")
 	enemyFolder.Name = "EnemyStructures"
-	enemyFolder.Parent = Workspace
+	enemyFolder.Parent = worldFolder
 
 	local effectsFolder = Instance.new("Folder")
 	effectsFolder.Name = "ResolveEffects"
-	effectsFolder.Parent = Workspace
+	effectsFolder.Parent = worldFolder
 
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "PlanUI"
@@ -84,16 +90,22 @@ function PlanUI.mount(owner)
 		clock.refresh()
 	end)
 
-	Input.onBoardClick(boardFolder, function(x, y)
+	local inputConnection = Input.onBoardClick(boardFolder, function(x, y)
 		controller:handleBoardClick(x, y)
 	end)
 
-	Cursor.mount(cursorFolder, boardFolder, controller, Input)
+	local cursorHandle = Cursor.mount(cursorFolder, boardFolder, controller, Input)
 	Render.mount(effectsFolder, enemyFolder, controller)
 
-	controller:startClock()
+	local function teardown()
+		controller:stopClock()
+		inputConnection:Disconnect()
+		cursorHandle.stop()
+		screenGui:Destroy()
+		worldFolder:Destroy()
+	end
 
-	return controller
+	return { controller = controller, teardown = teardown }
 end
 
 return PlanUI

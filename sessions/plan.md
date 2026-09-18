@@ -105,10 +105,25 @@ for it.
 
 ### Full match loop and wrapper screens
 
-- **Status:** open
+- **Status:** done (Session 007)
 - **Prerequisites:** Resolve phase vs. a dummy opponent
 - **Success criterion:** Multi-round progression with unlock gates and a running economy works end to end through the session state machine (intro → setup → rounds → result): intro with Start Game and a disabled Save/Continue, an empty settings panel backed by an extensible registry, and a result screen with the itemized score/stat breakdown and a Restart that never requires rejoining.
 - **Artifact:** `server/MatchService.luau` state machine and the three screens.
+- **Outcome:** Kept everything local-only per the Open Gate decision (mirroring Sessions
+  004-006's precedent) — `MatchController.luau` (`src/client/UI/`) owns intro → setup →
+  rounds → result and mounts/tears down a fresh `PlanUI` per match rather than a real
+  `server/MatchService.luau`; that becomes real in **Real two-player networking** below.
+  `PlanController` adopted `rules.luau`'s `resolveRound` command-batch model this session
+  (closing the gap Session 006 left open), with PLAN-phase commands applied immediately
+  for live feedback and replayed through `resolveRound` at round's end for the real
+  simultaneous-resolution semantics. The three screens live in `src/client/UI/Screens/`.
+  Score/stat bookkeeping (`structuresBuilt`, shots fired/hit/blocked, points broken out by
+  structure type, plus reveal/hit point categories added from live playtesting feedback)
+  was added to `src/shared/state.luau`/`rules.luau` to back the Result screen's breakdown.
+  `rojo build` clean; `lune run test` green (76/76). User-confirmed in Studio, including
+  two live fixes: a Ready-button highlight once setup's bases are placed, and the new
+  reveal/hit scoring categories (surfaced by a match the user felt they should have won on
+  scouting alone).
 
 ### Real two-player networking
 

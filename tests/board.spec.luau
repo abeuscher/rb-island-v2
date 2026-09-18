@@ -32,6 +32,20 @@ t.test("each player starts with a 12x12 island flush against the channel, center
 	t.expectFalse(Board.isLand(board, 36, 7))
 end)
 
+t.test("islandBounds matches each player's starting island exactly", function()
+	local aColStart, aColEnd, aRowStart, aRowEnd = Board.islandBounds(config, "A")
+	t.expectEqual(aColStart, 6)
+	t.expectEqual(aColEnd, 17)
+	t.expectEqual(aRowStart, 7)
+	t.expectEqual(aRowEnd, 18)
+
+	local bColStart, bColEnd, bRowStart, bRowEnd = Board.islandBounds(config, "B")
+	t.expectEqual(bColStart, 24)
+	t.expectEqual(bColEnd, 35)
+	t.expectEqual(bRowStart, 7)
+	t.expectEqual(bRowEnd, 18)
+end)
+
 t.test("every starting cell is flat", function()
 	local board = Board.new(config)
 	t.expectEqual(Board.elevationAt(board, 6, 7), 0)

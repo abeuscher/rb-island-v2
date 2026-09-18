@@ -91,10 +91,18 @@ end
 local function applyWeaponDamage(config, def, opponentStructures, impactCell)
 	local destroyedStructures = {}
 	local events = {}
+	local hitPoints = 0
 
 	local function damageCell(x, y, amount)
+		-- Looked up before damaging so a hit that also destroys the structure
+		-- still knows what type it was hitting (Structures.damage's own return
+		-- only carries a typeId on the destroyed branch).
+		local target = Structures.at(config.STRUCTURES, opponentStructures, x, y)
 		local newList, hit, destroyed, destroyedStructure = Structures.damage(config, opponentStructures, x, y, amount)
 		opponentStructures = newList
+		if hit and target and not target.underConstruction then
+			hitPoints += config.POINTS.hit[target.typeId]
+		end
 		if destroyed then
 			table.insert(destroyedStructures, destroyedStructure)
 		end
@@ -108,7 +116,7 @@ local function applyWeaponDamage(config, def, opponentStructures, impactCell)
 		end
 	end
 
-	return opponentStructures, destroyedStructures, events
+	return opponentStructures, destroyedStructures, events, hitPoints
 end
 
 -- Resolves everything one player's weapons do this round against the OTHER
@@ -121,6 +129,7 @@ local function resolvePlayerVolley(config, board, owner, weapons, targets, resou
 	local shots = {}
 	local destroyedStructures = {}
 	local events = {}
+	local hitPoints = 0
 
 	for _, weapon in ipairs(weapons) do
 		local def = config.STRUCTURES[weapon.typeId]
@@ -132,7 +141,7 @@ local function resolvePlayerVolley(config, board, owner, weapons, targets, resou
 					local shot = Flight.resolveShot(board, def, weapon.x, weapon.y, target.x, target.y)
 					if shot.inRange then
 						resources = Economy.spend(resources, cost)
-						table.insert(shots, { def = def, shot = shot, owner = owner, origin = { x = weapon.x, y = weapon.y } })
+						table.insert(shots, { def = def, shot = shot, owner = owner, origin = { x = weapon.x, y = weapon.y }, hit = false })
 						table.insert(events, {
 							type = "shot",
 							owner = owner,
@@ -143,8 +152,13 @@ local function resolvePlayerVolley(config, board, owner, weapons, targets, resou
 
 						-- A blocked direct shot impacts terrain for no damage (§10).
 						if not (def.fire_mode == "direct" and shot.blocked) then
-							local newOpponentStructures, destroyed, damageEvents = applyWeaponDamage(config, def, opponentStructures, shot.impactCell)
+							local newOpponentStructures, destroyed, damageEvents, damageHitPoints = applyWeaponDamage(config, def, opponentStructures, shot.impactCell)
 							opponentStructures = newOpponentStructures
+							hitPoints += damageHitPoints
+							-- damageEvents[1] is always the primary impact-cell hit (splash
+							-- neighbors, if any, follow it) -- that's what "a shot that hit"
+							-- means for the Result screen's shot breakdown.
+							shots[#shots].hit = damageEvents[1] ~= nil and damageEvents[1].hit or false
 							for _, destroyedStructure in ipairs(destroyed) do
 								table.insert(destroyedStructures, destroyedStructure)
 							end
@@ -158,7 +172,7 @@ local function resolvePlayerVolley(config, board, owner, weapons, targets, resou
 		end
 	end
 
-	return opponentStructures, resources, shots, destroyedStructures, events
+	return opponentStructures, resources, shots, destroyedStructures, events, hitPoints
 end
 
 local function destroyedCellSet(config, destroyedStructures)
@@ -170,12 +184,6 @@ local function destroyedCellSet(config, destroyedStructures)
 	end
 	return set
 end
-
--- Exposed for the resolve-phase client, which drives one player's volley against a
--- static dummy opponent directly rather than through the full resolveRound batch
--- (that batching is the next plan entry's concern, once B is a real second player).
-Rules.resolvePlayerVolley = resolvePlayerVolley
-Rules.destroyedCellSet = destroyedCellSet
 
 -- ## Scoring (§5.4) ##
 
@@ -190,7 +198,26 @@ local function standingPoints(config, playerState)
 end
 
 function Rules.finalScore(config, playerState)
-	return playerState.destructionPoints + standingPoints(config, playerState)
+	return playerState.destructionPoints + standingPoints(config, playerState) + playerState.revealPoints + playerState.hitPoints
+end
+
+-- Points for newly sighting a live enemy structure -- a cell that wasn't known
+-- to hold one (never revealed, revealed as empty/rubble, or last seen mid-
+-- construction) and now is. Compares the whole belief map before/after this
+-- round's reveals rather than per-shot, so a cell touched by more than one shot
+-- this round (or already known) is never double-counted.
+local function revealPointsEarned(config, oldBelief, newBelief)
+	local points = 0
+	for cellKey, cell in pairs(newBelief) do
+		if cell.typeId and not cell.underConstruction then
+			local old = oldBelief[cellKey]
+			local wasKnownLive = old and old.typeId and not old.underConstruction
+			if not wasKnownLive then
+				points += config.POINTS.reveal[cell.typeId]
+			end
+		end
+	end
+	return points
 end
 
 local function decideByPoints(config, state)
@@ -302,11 +329,12 @@ function Rules.resolveRound(config, state, commandsA, commandsB)
 	newState = applyPlayerCommands(config, newState, "B", commandsB)
 
 	newState = State.completeConstruction(config, newState)
+	local preCombatState = newState
 
 	local targetsA = extractTargets(commandsA)
 	local targetsB = extractTargets(commandsB)
 
-	local newStructsB, newResourcesA, shotsA, destroyedB, eventsA = resolvePlayerVolley(
+	local newStructsB, newResourcesA, shotsA, destroyedB, eventsA, hitPointsA = resolvePlayerVolley(
 		config,
 		newState.board,
 		"A",
@@ -315,7 +343,7 @@ function Rules.resolveRound(config, state, commandsA, commandsB)
 		newState.players.A.resources,
 		newState.players.B.structures
 	)
-	local newStructsA, newResourcesB, shotsB, destroyedA, eventsB = resolvePlayerVolley(
+	local newStructsA, newResourcesB, shotsB, destroyedA, eventsB, hitPointsB = resolvePlayerVolley(
 		config,
 		newState.board,
 		"B",
@@ -345,29 +373,69 @@ function Rules.resolveRound(config, state, commandsA, commandsB)
 		newBeliefB = Fog.applyReveal(config, newState.board, newStructsA, newBeliefB, s.def, s.shot, destroyedSetA)
 	end
 
-	local function destroyPoints(destroyed)
+	local revealPointsA = revealPointsEarned(config, newState.players.A.belief, newBeliefA)
+	local revealPointsB = revealPointsEarned(config, newState.players.B.belief, newBeliefB)
+
+	local function destroyPoints(destroyed, byType)
 		local total = 0
 		for _, structure in ipairs(destroyed) do
 			if not structure.underConstruction then
-				total += config.POINTS.destroy[structure.typeId]
+				local points = config.POINTS.destroy[structure.typeId]
+				total += points
+				byType[structure.typeId] += points
 			end
 		end
 		return total
 	end
 
+	-- Fired/hit/blocked feed the Result screen's per-player shot breakdown (§6.3).
+	-- "Hit" means the shot's primary impact cell actually damaged something; a
+	-- blocked direct shot is never a hit (it never reaches its target).
+	local function shotStats(shots)
+		local fired, hit, blocked = 0, 0, 0
+		for _, s in ipairs(shots) do
+			fired += 1
+			if s.hit then
+				hit += 1
+			end
+			if s.shot.blocked then
+				blocked += 1
+			end
+		end
+		return fired, hit, blocked
+	end
+
+	local firedA, hitA, blockedA = shotStats(shotsA)
+	local firedB, hitB, blockedB = shotStats(shotsB)
+
+	local destructionByTypeA = table.clone(newState.players.A.destructionPointsByType)
+	local destructionByTypeB = table.clone(newState.players.B.destructionPointsByType)
+
 	newState = State.withPlayer(newState, "A", {
 		structures = newStructsA,
 		resources = newResourcesA,
 		belief = newBeliefA,
-		destructionPoints = newState.players.A.destructionPoints + destroyPoints(destroyedA),
+		destructionPoints = newState.players.A.destructionPoints + destroyPoints(destroyedA, destructionByTypeA),
+		destructionPointsByType = destructionByTypeA,
+		revealPoints = newState.players.A.revealPoints + revealPointsA,
+		hitPoints = newState.players.A.hitPoints + hitPointsA,
 		structuresLost = newState.players.A.structuresLost + #destroyedA,
+		shotsFired = newState.players.A.shotsFired + firedA,
+		shotsHit = newState.players.A.shotsHit + hitA,
+		shotsBlocked = newState.players.A.shotsBlocked + blockedA,
 	})
 	newState = State.withPlayer(newState, "B", {
 		structures = newStructsB,
 		resources = newResourcesB,
 		belief = newBeliefB,
-		destructionPoints = newState.players.B.destructionPoints + destroyPoints(destroyedB),
+		destructionPoints = newState.players.B.destructionPoints + destroyPoints(destroyedB, destructionByTypeB),
+		destructionPointsByType = destructionByTypeB,
+		revealPoints = newState.players.B.revealPoints + revealPointsB,
+		hitPoints = newState.players.B.hitPoints + hitPointsB,
 		structuresLost = newState.players.B.structuresLost + #destroyedB,
+		shotsFired = newState.players.B.shotsFired + firedB,
+		shotsHit = newState.players.B.shotsHit + hitB,
+		shotsBlocked = newState.players.B.shotsBlocked + blockedB,
 	})
 
 	newState = State.accrueIncome(config, newState)
@@ -386,7 +454,18 @@ function Rules.resolveRound(config, state, commandsA, commandsB)
 		newState.round = newState.round + 1
 	end
 
-	return newState, events, victory
+	-- Raw per-side shot/destruction data, for a client that wants to animate the
+	-- volley precisely (impact cells, beam paths, blocked shots) rather than just
+	-- react to the flattened event log.
+	local resolution = {
+		preState = preCombatState,
+		shotsA = shotsA,
+		shotsB = shotsB,
+		destroyedA = destroyedA,
+		destroyedB = destroyedB,
+	}
+
+	return newState, events, victory, resolution
 end
 
 return Rules

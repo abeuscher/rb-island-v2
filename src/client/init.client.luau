@@ -1,5 +1,5 @@
 local Camera = require(script.Camera)
-local PlanUI = require(script.UI)
+local MatchController = require(script.UI.MatchController)
 
-PlanUI.mount("A")
+MatchController.start("A")
 Camera.start("A")
