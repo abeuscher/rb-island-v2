@@ -79,6 +79,12 @@ function Structures.place(config, board, list, owner, typeId, x, y, elapsed)
 		readyAt = elapsed + config.BUILD_SECONDS,
 		target = nil,
 		nextFireAt = 0,
+		-- Single shot by default: firing clears the target (rules.luau's
+		-- applyCooldowns), so it takes a fresh target command to fire again.
+		-- autoFire = true keeps firing on its own target every cooldown instead --
+		-- the "Weapon inspection and control panel" plan entry's own toggle,
+		-- not yet exposed to a real player (Session 015).
+		autoFire = false,
 	})
 	return newList, true, nil
 end

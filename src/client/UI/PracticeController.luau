@@ -68,8 +68,11 @@ local function seedDummyOpponent(config, state, enemy)
 	-- B is ever seeded as the dummy in practice (PlanUI always mounts as "A").
 	local frontlineCol = colStart
 
+	-- autoFire = true: the dummy has no one to keep re-arming its target every
+	-- cooldown the way single-shot now expects a real player to (§18), and
+	-- it's still meant to keep pressuring the player across a whole match.
 	local function structure(typeId, x, y)
-		return { typeId = typeId, x = x, y = y, hp = config.STRUCTURES[typeId].hp, underConstruction = false }
+		return { typeId = typeId, x = x, y = y, hp = config.STRUCTURES[typeId].hp, underConstruction = false, autoFire = true }
 	end
 
 	local cannonCell = { x = frontlineCol, y = rowStart }

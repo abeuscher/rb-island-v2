@@ -271,7 +271,7 @@ for it.
 
 ### Bot re-adaptation
 
-- **Status:** open
+- **Status:** done (Session 015)
 - **Prerequisites:** MatchService real-time loop
 - **Success criterion:** `server/Bot.luau` moves from one `decide()` call per PLAN phase to a
   periodic re-decide cadence inside the live tick loop (config-driven interval). `Bot:decide`'s
@@ -282,6 +282,28 @@ for it.
   economy rules a real player is held to.
 - **Artifact:** `server/Bot.luau`, `src/shared/botDifficulty.luau` (round-keyed → time-keyed
   patience).
+- **Outcome:** `Bot.luau`'s `view.round`/`config.UNLOCK_ROUND`/`def.unlock_round` references —
+  dead since Session 011's round→time rename, never touched since — are now `view.elapsed`/
+  `config.UNLOCK_TIME`/`def.unlock_time`; belief-staleness tracking (`beliefSeenRound` →
+  `beliefSeenAt`) and `botDifficulty.luau`'s patience knob (`restProbeRounds` →
+  `restProbeSeconds`, keeping the old 4:2:1 ratio scaled by the ~10s a testing round used to
+  take) moved the same way. A second, unrelated crash surfaced on read:
+  `MatchService.luau`'s difficulty-based starting-Supply bonus referenced `SUPPLY_PER_ROUND`,
+  also deleted in the same rework — swapped for `STARTING_SUPPLY`, same "extra = base ×
+  (multiplier − 1)" shape. Added `config.BOT_DECIDE_INTERVAL_SECONDS` (3s) and wired
+  `MatchService:_tick` to re-run `Bot:decide()` on that cadence instead of once at match
+  start; `decide()` needed no changes for repeated-call safety (build/terrain commands
+  already only add what's missing), and its per-call full re-target pass incidentally became
+  its own re-arm mechanism once this session's single-shot change (below) landed. `lune run
+  test`: 84/84 unaffected (server/-only changes, outside the pure layer). `rojo build` clean.
+  Also this session, at the user's request: single shot is now the rules core's default (a
+  fired weapon clears its own target instead of firing again on its own; `structure.autoFire`,
+  default `false`, is the flag a future control will flip — see "Weapon inspection and control
+  panel"'s finding below), and the build palette's weapon buttons show their Supply cost and
+  dim when unaffordable. `lune run test`: 85/85 after those changes. Live Studio confirmation
+  across all three difficulty presets wasn't explicitly reported back in this session — the
+  user acknowledged the summary and moved on to the two requests above without flagging a
+  problem, but this is worth an explicit playtest pass before calling the bot fully proven.
 
 ### Client real-time UI
 
@@ -351,6 +373,31 @@ for it.
   Upgrades themselves are explicitly out of scope here and not yet their own entry — this
   card is meant to be the future home for upgrade controls once that feature is actually
   designed, not a prerequisite that must land alongside it.
+- **Finding (Session 015):** at the user's request, single shot is now the rules core's
+  default (a fired weapon clears its own target and needs a fresh target command to fire
+  again) and the underlying flag this entry's artifact list anticipated already exists as
+  `structure.autoFire` (default `false`; `true` keeps a weapon firing on its own target every
+  cooldown, the practice-mode dummy's own setting since nothing else re-arms it). This entry's
+  remaining scope is purely the UI — the info card and a control wired to the existing flag —
+  not the flag itself.
+
+### New weapon types: missiles and scout drones
+
+- **Status:** open, scope pending design
+- **Prerequisites:** none — the weapon roster (`config.STRUCTURES`) and fire pipeline
+  (`Rules.tick`/`Flight.luau`) are already generic across weapon types, so this can start
+  whenever it's scoped.
+- **Success criterion:** not yet defined — needs a design pass before it can become a real
+  entry. Open design questions: what a missile is that a cannon/mortar isn't (range, damage,
+  cooldown, splash, cost, unlock timing, and whether it's direct or arced fire like the
+  existing two); and whether a scout drone is a weapon at all in the existing sense
+  (`fire_mode`, damage) or a non-damaging recon structure that reveals fog on some other
+  mechanic — that distinction changes whether it fits the current `Structures`/`Rules.tick`
+  shape or needs a new one.
+- **Note (raised Session 015):** captured as a roadmap item at the user's request, name only —
+  no stats, mechanics, or bot/sim integration decided. Both the bot's `buildWeapons` roster
+  (`server/Bot.luau`) and the sim's archetype strategies would need updating for a new weapon
+  type once scoped, but that's this entry's own job, not a prerequisite.
 
 ### Sim harness rewrite
 

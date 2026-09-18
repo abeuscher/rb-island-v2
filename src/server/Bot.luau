@@ -1,16 +1,18 @@
--- §14's FSM: evaluated once per PLAN phase, playing by identical rules,
--- costs, and unlock gates through its own fog. Built on
--- src/shared/archetypeKit.luau's View-based candidate-cell/target-selection
--- logic -- the same "read only your own belief map, never true enemy
--- structure state" contract the sim's five scripted archetypes already use
--- (Session 003), now driving a real seat in MatchService's round loop
--- (Session 009) instead of a harness-only strategy.
+-- §14's FSM: re-run on a periodic re-decide cadence during "live" (Session
+-- 015 -- config.BOT_DECIDE_INTERVAL_SECONDS, MatchService's job to schedule),
+-- playing by identical rules, costs, and unlock gates through its own fog.
+-- Built on src/shared/archetypeKit.luau's View-based candidate-cell/target-
+-- selection logic -- the same "read only your own belief map, never true
+-- enemy structure state" contract the sim's five scripted archetypes already
+-- use (Session 003), now driving a real seat in MatchService's live loop
+-- (Session 009) instead of a harness-only strategy. decide() only ever adds
+-- what it doesn't already have (build/terrain), so calling it repeatedly is
+-- safe by construction rather than needing its own re-entrancy guard.
 --
 -- Setup's 3 bases are placed once by MatchService itself via
 -- Bot.chooseBaseSpots, the same way a real player's setup phase precedes
--- round 1 -- decide() below only ever runs during PLAN phases from round 1
--- onward, so it never needs its own round-1 base-placement branch the sim
--- archetypes do.
+-- live play -- decide() below only ever runs during "live", so it never
+-- needs its own base-placement branch the sim archetypes do.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -42,7 +44,7 @@ function Bot.new(difficultyId)
 	local self = setmetatable({}, Bot)
 	self.preset = difficultyPreset(difficultyId)
 	self.lastBelief = {}
-	self.beliefSeenRound = {}
+	self.beliefSeenAt = {}
 	return self
 end
 
@@ -64,12 +66,13 @@ local function beliefCellChanged(a, b)
 	return a.typeId ~= b.typeId or a.underConstruction ~= b.underConstruction or a.rubble ~= b.rubble
 end
 
--- Records which round each belief cell last actually changed, so a plot that
--- hasn't been reconfirmed in a while can be told apart from one just seen.
+-- Records the elapsed match time each belief cell last actually changed, so a
+-- plot that hasn't been reconfirmed in a while can be told apart from one
+-- just seen.
 function Bot:_markSeenPlots(view)
 	for cellKey, entry in pairs(view.self.belief) do
 		if beliefCellChanged(entry, self.lastBelief[cellKey]) then
-			self.beliefSeenRound[cellKey] = view.round
+			self.beliefSeenAt[cellKey] = view.elapsed
 		end
 	end
 	self.lastBelief = view.self.belief
@@ -78,14 +81,14 @@ end
 -- A view with every plotted base/generator older than this difficulty's
 -- patience window stripped back to "unexplored" -- so Kit.chooseTargets sends
 -- a probing shot there again instead of committing a kill/suppress volley to
--- intel that might be wrong by now (§14: "how many rounds it waits before
+-- intel that might be wrong by now (§14: "how many seconds it waits before
 -- re-probing stale plots"). Building decisions still read the real view;
 -- only targeting goes through this one.
 function Bot:_freshView(view)
-	local restProbeRounds = self.preset.restProbeRounds
+	local restProbeSeconds = self.preset.restProbeSeconds
 	local freshBelief = table.clone(view.self.belief)
 	for cellKey, entry in pairs(view.self.belief) do
-		if entry.typeId and (view.round - (self.beliefSeenRound[cellKey] or 0)) >= restProbeRounds then
+		if entry.typeId and (view.elapsed - (self.beliefSeenAt[cellKey] or 0)) >= restProbeSeconds then
 			freshBelief[cellKey] = nil
 		end
 	end
@@ -107,7 +110,7 @@ local function raiseThenPlace(config, view, typeId, reserved, trySpend)
 		return nil
 	end
 
-	if view.round >= config.UNLOCK_ROUND.terrain_edit and Kit.wouldSucceed(Board.raise, view.board, peak.x, peak.y) then
+	if view.elapsed >= config.UNLOCK_TIME.terrain_edit and Kit.wouldSucceed(Board.raise, view.board, peak.x, peak.y) then
 		if trySpend({ supply = config.RAISE_COST }) then
 			return { type = "raise", x = peak.x, y = peak.y }
 		end
@@ -155,7 +158,7 @@ local function lowerAroundBases(config, view, trySpend)
 	return nil
 end
 
--- config.STRUCTURES.mortar.unlock_round-gated, mortar preferred over cannon
+-- config.STRUCTURES.mortar.unlock_time-gated, mortar preferred over cannon
 -- (§14 Kill: "use mortars if a ridge blocks direct lines" -- Kit.chooseTargets
 -- already lets a mortar reach a plotted base a cannon's blocked line can't,
 -- so simply having both weapon types on the board is what makes that happen)
@@ -165,7 +168,7 @@ end
 local function buildWeapons(config, view, reserved, resources, commands)
 	for _, typeId in ipairs({ "mortar", "cannon" }) do
 		local def = config.STRUCTURES[typeId]
-		if view.round >= def.unlock_round then
+		if view.elapsed >= def.unlock_time then
 			local spots = Kit.candidateCells(config, view, typeId, reserved)
 			while #spots > 0 and Economy.canAfford(resources, { supply = def.supply_cost }) do
 				local spot = spots[math.random(#spots)]
@@ -205,7 +208,7 @@ function Bot:decide(config, view)
 		end
 	else
 		local shaped = nil
-		if self.preset.usesElevation and view.round >= config.UNLOCK_ROUND.terrain_edit then
+		if self.preset.usesElevation and view.elapsed >= config.UNLOCK_TIME.terrain_edit then
 			shaped = lowerAroundBases(config, view, trySpend) or raiseThenPlace(config, view, "cannon", reserved, trySpend)
 		end
 
@@ -216,6 +219,11 @@ function Bot:decide(config, view)
 		end
 	end
 
+	-- Reassigns every live weapon a target each call, including ones that already
+	-- have one -- incidentally what keeps the bot's weapons firing at all now that
+	-- a fired shot clears its own target by default (§18): this periodic re-decide
+	-- is effectively the bot's own hand re-arming them, the same way a real player
+	-- has to until the autoFire control exists.
 	local freshView = self:_freshView(view)
 	for _, command in ipairs(Kit.chooseTargets(config, freshView, Kit.pendingWeaponsFrom(config, commands))) do
 		table.insert(commands, command)

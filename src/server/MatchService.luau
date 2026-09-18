@@ -18,10 +18,9 @@
 -- commands for a bot seat run through the exact same _handleSetupCommand
 -- path a real player's commands do, so a bot is held to identical
 -- validation, costs, and unlock gates -- every push-to-client call just
--- no-ops for it (see _pushState). Bot re-decisions during "live" are a
--- periodic re-decide cadence (server/Bot.luau's own plan entry, not this
--- one) -- this session only relocates the single opening decide() call
--- _startLive already made under the old model.
+-- no-ops for it (see _pushState). Bot re-decisions during "live" run on a
+-- periodic config.BOT_DECIDE_INTERVAL_SECONDS cadence off the same tick loop
+-- (Session 015), in place of the old single opening decide() call.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -238,23 +237,26 @@ function MatchService:_startLive()
 		self:_pushState(owner, "match begins", true)
 	end
 
-	-- The tick loop starts before the bot's own (currently broken -- Bot re-
-	-- adaptation's job, not this one) decide() call, so a bot-seat error can't
-	-- also take the live loop down with it.
+	-- The tick loop starts before the bot's own decide() call, so a bot-seat
+	-- error can't also take the live loop down with it.
 	self:_runTickLoop()
 
 	if self.bot then
 		self.state = self:_applyBotSupplyMultiplier(self.state)
 		self:_runBotTurn()
+		self._botNextDecideAt = self.config.BOT_DECIDE_INTERVAL_SECONDS
 	end
 end
 
 -- §14's difficulty knob, applied directly to the bot's own resources rather
 -- than in the shared economy/rules core every real player and every sim
 -- archetype also goes through unmodified -- it's a bot-only handicap, not a
--- rules change.
+-- rules change. Scales off STARTING_SUPPLY rather than the old per-round
+-- SUPPLY_PER_ROUND (gone since Session 011's rate-based economy rework) --
+-- same "extra = base * (multiplier - 1)" shape, against the nearest constant
+-- that still means the same thing: a one-time starting-Supply handicap.
 function MatchService:_applyBotSupplyMultiplier(state)
-	local extra = math.floor(self.config.SUPPLY_PER_ROUND * (self.bot.preset.supplyMultiplier - 1) + 0.5)
+	local extra = math.floor(self.config.STARTING_SUPPLY * (self.bot.preset.supplyMultiplier - 1) + 0.5)
 	if extra == 0 then
 		return state
 	end
@@ -264,9 +266,11 @@ function MatchService:_applyBotSupplyMultiplier(state)
 	})
 end
 
--- The bot's one and only decide() call, carried over unchanged from the old
--- once-per-PLAN-phase cadence -- a periodic re-decide loop is Bot
--- re-adaptation's own plan entry, not this one.
+-- Runs one decide() pass: at match start (_startLive) and then periodically
+-- from _tick every config.BOT_DECIDE_INTERVAL_SECONDS. Safe to call repeatedly
+-- -- decide() only ever adds commands for what the bot doesn't already have,
+-- against the current live state each time, so a re-decide call is never a
+-- replay of an earlier one.
 function MatchService:_runBotTurn()
 	local commands = self.bot:decide(self.config, View.new(self.state, "B"))
 	for _, command in ipairs(commands) do
@@ -310,6 +314,12 @@ function MatchService:_tick()
 			end
 		end
 		self.onEnded()
+		return
+	end
+
+	if self.bot and self.state.elapsed >= self._botNextDecideAt then
+		self:_runBotTurn()
+		self._botNextDecideAt = self.state.elapsed + self.config.BOT_DECIDE_INTERVAL_SECONDS
 	end
 end
 

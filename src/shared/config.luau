@@ -27,6 +27,11 @@ return {
 	BUILD_SECONDS = 5,
 	INCAPACITATION_GRACE_SECONDS = 40,
 
+	-- How often server/Bot.luau re-runs decide() during "live" -- a guess at what
+	-- reads as responsive without thrashing weapon targets between cooldowns,
+	-- pending live testing (§18).
+	BOT_DECIDE_INTERVAL_SECONDS = 3,
+
 	NUM_BASES = 3,
 	SIM_MATCHES_PER_PAIR = 200,
 

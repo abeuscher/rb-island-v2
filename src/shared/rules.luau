@@ -151,7 +151,9 @@ end
 -- Puts fired weapons on cooldown, applied after the opponent's simultaneous damage
 -- so a weapon destroyed this same tick is simply gone rather than resurrected with
 -- a cooldown. Looked up by cell rather than by index since the damage pass may have
--- removed or reordered entries.
+-- removed or reordered entries. Also clears the target unless autoFire is set --
+-- single shot by default (§18): a fired weapon goes idle until re-targeted, rather
+-- than firing again on its own next cooldown.
 local function applyCooldowns(config, list, firings, now)
 	for _, firing in ipairs(firings) do
 		local x, y = firing.origin.x, firing.origin.y
@@ -162,6 +164,9 @@ local function applyCooldowns(config, list, firings, now)
 				if structure == target then
 					local updated = table.clone(structure)
 					updated.nextFireAt = now + firing.def.cooldown_seconds
+					if not updated.autoFire then
+						updated.target = nil
+					end
 					table.insert(newList, updated)
 				else
 					table.insert(newList, structure)

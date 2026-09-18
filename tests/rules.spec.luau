@@ -214,14 +214,16 @@ t.test("Rules.tick awards reveal points once per newly-sighted live structure, n
 	local afterFirstShot = Rules.tick(cfg, warmedUp)
 	t.expectEqual(afterFirstShot.players.A.revealPoints, config.POINTS.reveal.base + config.POINTS.reveal.generator)
 
-	-- The weapon fires again on its own once off cooldown, with no new target
-	-- command -- re-sighting the same live structures must not double-count.
-	local afterSecondShot = Rules.tick(cfg, afterFirstShot)
+	-- Single shot clears the target on firing (§18), so a second shot needs a
+	-- fresh target command -- re-sighting the same live structures still must
+	-- not double-count.
+	local retargeted = Rules.applyCommand(cfg, afterFirstShot, "A", { type = "target", x = 17, y = 10, targetX = 30, targetY = 10 })
+	local afterSecondShot = Rules.tick(cfg, retargeted)
 	t.expectEqual(afterSecondShot.players.A.shotsFired, 2)
 	t.expectEqual(afterSecondShot.players.A.revealPoints, afterFirstShot.players.A.revealPoints)
 end)
 
-t.test("a full scripted match: place a cannon, target once, let it fire on its own tick after tick until base elimination", function()
+t.test("a weapon defaults to single shot: firing clears its target instead of firing again on its own", function()
 	local cfg = fastConfig()
 	local state = State.new(cfg)
 	state = State.withPlayer(state, "A", { structures = { withBase(6, 7) } })
@@ -230,9 +232,37 @@ t.test("a full scripted match: place a cannon, target once, let it fire on its o
 	local afterPlace = Rules.applyCommand(cfg, state, "A", { type = "place", typeId = "cannon", x = 17, y = 10 })
 	local afterTarget = Rules.applyCommand(cfg, afterPlace, "A", { type = "target", x = 17, y = 10, targetX = 24, targetY = 10 })
 
+	local warmedUp = advanceTicks(cfg, afterTarget, 1)
+	local afterFirstShot = Rules.tick(cfg, warmedUp)
+	t.expectEqual(afterFirstShot.players.A.shotsFired, 1)
+	t.expectEqual(afterFirstShot.players.A.structures[2].target, nil)
+
+	-- Off cooldown again but never re-targeted -- must not fire a second time.
+	local afterSecondTick = Rules.tick(cfg, afterFirstShot)
+	t.expectEqual(afterSecondTick.players.A.shotsFired, 1)
+end)
+
+t.test("a full scripted match with autoFire on: target once, let it fire on its own tick after tick until base elimination", function()
+	local cfg = fastConfig()
+	local state = State.new(cfg)
+	state = State.withPlayer(state, "A", { structures = { withBase(6, 7) } })
+	state = State.withPlayer(state, "B", { structures = { withBase(24, 10) } })
+
+	local afterPlace = Rules.applyCommand(cfg, state, "A", { type = "place", typeId = "cannon", x = 17, y = 10 })
+	local afterTarget = Rules.applyCommand(cfg, afterPlace, "A", { type = "target", x = 17, y = 10, targetX = 24, targetY = 10 })
+
+	-- autoFire isn't exposed to a real player yet (§ Weapon inspection and control
+	-- panel), so it's set directly here to exercise the "keeps firing on its own"
+	-- path this test is actually about.
+	local cannon = table.clone(afterTarget.players.A.structures[2])
+	cannon.autoFire = true
+	local structures = table.clone(afterTarget.players.A.structures)
+	structures[2] = cannon
+	local withAutoFire = State.withPlayer(afterTarget, "A", { structures = structures })
+
 	-- base hp 40 / cannon damage 10 = 4 hits: 1 tick to complete construction, then
 	-- 4 more ticks firing once per (one-tick) cooldown.
-	local current, victory = advanceTicks(cfg, afterTarget, 5)
+	local current, victory = advanceTicks(cfg, withAutoFire, 5)
 
 	t.expectTrue(victory ~= nil)
 	t.expectEqual(victory.condition, "base_elimination")

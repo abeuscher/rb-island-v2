@@ -15,15 +15,22 @@ local TOOLS_SETUP = {
 	{ id = "place:base", label = "Place Base" },
 	{ id = "bulldoze", label = "Bulldoze" },
 }
+-- typeId on a tool means "this costs Supply to use" -- its button gets a price
+-- label and dims when the player can't currently afford it (§18).
 local TOOLS_ROUNDS = {
-	{ id = "place:generator", label = "Build Generator" },
-	{ id = "place:cannon", label = "Build Cannon" },
-	{ id = "place:mortar", label = "Build Mortar" },
+	{ id = "place:generator", label = "Build Generator", typeId = "generator" },
+	{ id = "place:cannon", label = "Build Cannon", typeId = "cannon" },
+	{ id = "place:mortar", label = "Build Mortar", typeId = "mortar" },
 	{ id = "bulldoze", label = "Bulldoze" },
 	{ id = "raise", label = "Raise Terrain" },
 	{ id = "lower", label = "Lower Terrain" },
 	{ id = "reclaim", label = "Reclaim Land" },
 }
+
+local AFFORDABLE_TEXT_COLOR = Color3.fromRGB(240, 240, 240)
+local UNAFFORDABLE_TEXT_COLOR = Color3.fromRGB(120, 120, 120)
+local AFFORDABLE_COST_COLOR = Color3.fromRGB(210, 200, 130)
+local UNAFFORDABLE_COST_COLOR = Color3.fromRGB(110, 105, 80)
 
 local function makeButton(text, layoutOrder, parent)
 	local button = Instance.new("TextButton")
@@ -37,6 +44,22 @@ local function makeButton(text, layoutOrder, parent)
 	button.TextColor3 = Color3.fromRGB(240, 240, 240)
 	button.Parent = parent
 	return button
+end
+
+-- A right-aligned Supply-cost label docked inside a tool button.
+local function addCostLabel(button, costText)
+	local cost = Instance.new("TextLabel")
+	cost.Name = "Cost"
+	cost.Size = UDim2.new(0, 40, 1, 0)
+	cost.Position = UDim2.new(1, -44, 0, 0)
+	cost.BackgroundTransparency = 1
+	cost.Font = Enum.Font.SourceSans
+	cost.TextSize = 16
+	cost.TextXAlignment = Enum.TextXAlignment.Right
+	cost.TextColor3 = AFFORDABLE_COST_COLOR
+	cost.Text = costText
+	cost.Parent = button
+	return cost
 end
 
 -- Builds the panel into `parent` and wires its buttons to `controller`.
@@ -57,6 +80,8 @@ function BuildPalette.mount(parent, controller)
 
 	local activeTool = nil
 	local toolButtons = {}
+	local toolCostLabels = {}
+	local currentTools = TOOLS_SETUP
 
 	local function setActive(id)
 		activeTool = id
@@ -94,11 +119,18 @@ function BuildPalette.mount(parent, controller)
 			end
 		end
 		toolButtons = {}
+		toolCostLabels = {}
 
 		local tools = (phase == "setup") and TOOLS_SETUP or TOOLS_ROUNDS
+		currentTools = tools
 		for order, tool in ipairs(tools) do
 			local button = makeButton(tool.label, order, toolFrame)
 			toolButtons[tool.id] = button
+			if tool.typeId then
+				button.TextXAlignment = Enum.TextXAlignment.Left
+				local cost = controller.config.STRUCTURES[tool.typeId].supply_cost
+				toolCostLabels[tool.id] = addCostLabel(button, tostring(cost))
+			end
 			button.MouseButton1Click:Connect(function()
 				controller:setTool(tool.id)
 				setActive(tool.id)
@@ -115,6 +147,24 @@ function BuildPalette.mount(parent, controller)
 		else
 			controller:setTool("none")
 			setActive(nil)
+		end
+	end
+
+	-- Dims a cost-bearing tool's label/price once Supply can't cover it, without
+	-- disabling the button -- Supply keeps accruing, so a tool that's unaffordable
+	-- this instant may not be a couple seconds from now, and the server is the
+	-- real gate on affordability regardless (§18).
+	local function updateAffordability()
+		if not controller.state then
+			return
+		end
+		local supply = controller.state.self.resources.supply
+		for _, tool in ipairs(currentTools) do
+			if tool.typeId then
+				local affordable = supply >= controller.config.STRUCTURES[tool.typeId].supply_cost
+				toolButtons[tool.id].TextColor3 = affordable and AFFORDABLE_TEXT_COLOR or UNAFFORDABLE_TEXT_COLOR
+				toolCostLabels[tool.id].TextColor3 = affordable and AFFORDABLE_COST_COLOR or UNAFFORDABLE_COST_COLOR
+			end
 		end
 	end
 
@@ -144,6 +194,7 @@ function BuildPalette.mount(parent, controller)
 
 	local function refresh()
 		rebuildTools()
+		updateAffordability()
 
 		local showWeapons = controller.phase ~= "setup"
 		weaponHeader.Visible = showWeapons
