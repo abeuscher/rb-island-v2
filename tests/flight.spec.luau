@@ -21,14 +21,14 @@ t.test("chebyshevDistance is the max of the axis deltas", function()
 end)
 
 t.test("direct-fire range gains +2 per level of the firing cell's elevation", function()
-	t.expectEqual(Flight.range(cannon, 0), 10)
-	t.expectEqual(Flight.range(cannon, 1), 12)
-	t.expectEqual(Flight.range(cannon, 2), 14)
+	t.expectEqual(Flight.range(cannon, 0), cannon.range)
+	t.expectEqual(Flight.range(cannon, 1), cannon.range + 2)
+	t.expectEqual(Flight.range(cannon, 2), cannon.range + 4)
 end)
 
 t.test("arc-fire range is unaffected by elevation", function()
-	t.expectEqual(Flight.range(mortar, 0), 16)
-	t.expectEqual(Flight.range(mortar, 2), 16)
+	t.expectEqual(Flight.range(mortar, 0), mortar.range)
+	t.expectEqual(Flight.range(mortar, 2), mortar.range)
 end)
 
 t.test("a clear direct shot over flat ground is not blocked and lands on the target", function()
@@ -76,7 +76,8 @@ end)
 
 t.test("a shot beyond range never resolves a beam", function()
 	local board = boardWithElevation({})
-	local shot = Flight.resolveShot(board, cannon, 1, 1, 12, 1) -- distance 11 > range 10
+	local beyondRange = cannon.range + 2
+	local shot = Flight.resolveShot(board, cannon, 1, 1, 1 + beyondRange, 1)
 	t.expectFalse(shot.inRange)
 	t.expectEqual(shot.blocked, nil)
 end)

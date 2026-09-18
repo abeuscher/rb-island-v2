@@ -52,11 +52,17 @@ function RoundClock.mount(parent, controller)
 	end)
 
 	local function refresh()
-		roundLabel.Text = string.format("Round %d -- PLAN", controller.state.round)
-		clockLabel.Text = string.format("%ds remaining", math.max(0, math.ceil(controller:getSecondsRemaining())))
+		if controller.phase == "resolve" then
+			roundLabel.Text = string.format("Round %d -- RESOLVE", controller.state.round)
+			clockLabel.Text = "Resolving..."
+		else
+			roundLabel.Text = string.format("Round %d -- PLAN", controller.state.round)
+			clockLabel.Text = string.format("%ds remaining", math.max(0, math.ceil(controller:getSecondsRemaining())))
+		end
 	end
 
 	refresh()
+	controller:onResolve(refresh)
 
 	return { refresh = refresh }
 end

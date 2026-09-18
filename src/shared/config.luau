@@ -20,7 +20,7 @@ return {
 
 	MAX_ROUNDS = 5,
 	INCAPACITATION_GRACE_ROUNDS = 2,
-	PLAN_SECONDS = 45,
+	PLAN_SECONDS = 10, -- shortened for testing; restore toward 45 once the loop is playtested (§18)
 	RESOLVE_SECONDS = 10,
 
 	NUM_BASES = 3,
@@ -76,7 +76,7 @@ return {
 			hp = 6,
 			footprint = 1,
 			fire_mode = "direct",
-			range = 10,
+			range = 20, -- doubled for testing so weapons aren't pinned to the frontline (§18)
 			elevation_range_bonus = 2,
 			damage = 10,
 			splash = nil,
@@ -91,7 +91,7 @@ return {
 			hp = 5,
 			footprint = 1,
 			fire_mode = "arc",
-			range = 16,
+			range = 32, -- doubled for testing, matching the cannon (§18)
 			elevation_range_bonus = 0,
 			damage = 14,
 			splash = { amount = 6, pattern = "orthogonal" },

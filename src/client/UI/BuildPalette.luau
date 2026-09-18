@@ -109,7 +109,7 @@ function BuildPalette.mount(parent, controller)
 			)
 			button.TextXAlignment = Enum.TextXAlignment.Left
 			button.MouseButton1Click:Connect(function()
-				controller:armTarget(weapon.key)
+				controller:armTarget(weapon)
 				setActive(nil)
 			end)
 		end

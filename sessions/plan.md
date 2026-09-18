@@ -84,10 +84,24 @@ for it.
 
 ### Resolve phase vs. a dummy opponent
 
-- **Status:** open
+- **Status:** done (Session 006)
 - **Prerequisites:** Planning phase
 - **Success criterion:** Aiming and firing a volley against a static dummy layout animates both sides' volleys firing simultaneously, shows direct fire visibly stopping at ridges, applies damage and rubble, and updates the belief map to show exactly what was revealed.
 - **Artifact:** `src/client/Render.luau` projectile/impact/rubble rendering and reveal rendering.
+- **Outcome:** `PlanController:advanceRound()` calls `rules.luau`'s newly-exported
+  `resolvePlayerVolley`/`destroyedCellSet` directly (not the full `resolveRound` batch —
+  see the log's Open Gate decision) against a static dummy layout seeded onto the enemy
+  island. `Render.luau` animates both sides' shots concurrently to wherever they actually
+  land, so a blocked cannon shot visibly stops at a ridge with no special-casing needed;
+  destroyed structures get transient rubble, and the enemy island renders from the local
+  belief map with revealed structures/rubble and a subtle unrevealed-cell marker. Fog
+  clears progressively as a shell crosses each beam cell rather than all at once at
+  commit (added from live user testing, no fog/rules rework needed). Live Studio testing
+  also drove a range-validation gate on targeting and misfire feedback for out-of-range/
+  unaffordable shots — both were silent failures before. `rojo build` clean; `lune run
+  test` green (71/71, after updating `flight.spec.luau` to read range expectations from
+  config rather than hardcoded numbers). `PLAN_SECONDS` (10) and both weapons' ranges
+  (cannon 20, mortar 32) are testing-only values pending a real balance pass (§18).
 
 ### Full match loop and wrapper screens
 

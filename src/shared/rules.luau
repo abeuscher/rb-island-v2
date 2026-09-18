@@ -132,7 +132,7 @@ local function resolvePlayerVolley(config, board, owner, weapons, targets, resou
 					local shot = Flight.resolveShot(board, def, weapon.x, weapon.y, target.x, target.y)
 					if shot.inRange then
 						resources = Economy.spend(resources, cost)
-						table.insert(shots, { def = def, shot = shot })
+						table.insert(shots, { def = def, shot = shot, owner = owner, origin = { x = weapon.x, y = weapon.y } })
 						table.insert(events, {
 							type = "shot",
 							owner = owner,
@@ -170,6 +170,12 @@ local function destroyedCellSet(config, destroyedStructures)
 	end
 	return set
 end
+
+-- Exposed for the resolve-phase client, which drives one player's volley against a
+-- static dummy opponent directly rather than through the full resolveRound batch
+-- (that batching is the next plan entry's concern, once B is a real second player).
+Rules.resolvePlayerVolley = resolvePlayerVolley
+Rules.destroyedCellSet = destroyedCellSet
 
 -- ## Scoring (§5.4) ##
 

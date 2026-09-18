@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.config)
 local ClientBoard = require(script.Parent.Board)
 local Input = require(script.Parent.Input)
+local Render = require(script.Parent.Render)
 local PlanController = require(script.PlanController)
 local BuildPalette = require(script.BuildPalette)
 local RoundClock = require(script.RoundClock)
@@ -32,6 +33,14 @@ function PlanUI.mount(owner)
 	local cursorFolder = Instance.new("Folder")
 	cursorFolder.Name = "Cursor"
 	cursorFolder.Parent = Workspace
+
+	local enemyFolder = Instance.new("Folder")
+	enemyFolder.Name = "EnemyStructures"
+	enemyFolder.Parent = Workspace
+
+	local effectsFolder = Instance.new("Folder")
+	effectsFolder.Name = "ResolveEffects"
+	effectsFolder.Parent = Workspace
 
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "PlanUI"
@@ -80,6 +89,7 @@ function PlanUI.mount(owner)
 	end)
 
 	Cursor.mount(cursorFolder, boardFolder, controller, Input)
+	Render.mount(effectsFolder, enemyFolder, controller)
 
 	controller:startClock()
 
