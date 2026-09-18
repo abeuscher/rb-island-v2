@@ -204,7 +204,7 @@ for it.
 
 ### MatchService real-time loop
 
-- **Status:** open
+- **Status:** done (Session 012)
 - **Prerequisites:** Real-time rules core
 - **Success criterion:** `server/MatchService.luau`'s phase state machine collapses from
   `setup → plan → resolve → result` to `setup → one live phase (running entry 1's tick) →
