@@ -164,32 +164,103 @@ for it.
   green (80/80); user-confirmed live in Studio against the bot, difficulty presets untuned
   pending §18.
 
-### Real-time combat and economy (paradigm shift)
+### Real-time rules core
 
 - **Status:** open
 - **Prerequisites:** Bot opponent
-- **Success criterion:** TBD — this entry is a placeholder pending Session 010's planning
-  pass, which replaces it with the real sequence of entries (rules core, MatchService,
-  bot, client UI, sim harness). Do not treat this single entry as the actual scope.
-- **Artifact:** TBD.
-- **Note:** Mid-Session-009, the round-based simultaneous-resolution model was judged a
-  turn-based mechanic grafted onto an already real-time client-server game, and not worth
-  carrying forward. The decision: replace it with per-weapon fire cooldowns, continuous
-  Supply/Energy accrual, timed construction, and a single fixed-length match clock in place
-  of MAX_ROUNDS. This touches the rules core, `MatchService`'s phase state machine, the
-  bot's decision cadence, the sim harness, and the client's round-clock UI. See
-  `sessions/010. ... — Brief.md` for the full scope carried over from that conversation.
+- **Success criterion:** `resolveRound`'s batch model (validate a whole PLAN-phase command
+  set, then run the fixed RESOLVE step order) is replaced by a tick function evaluated on a
+  **fixed server heartbeat** (config-driven tick length, default 0.5s — decided over
+  independent per-weapon timers in Session 010 for determinism and to give the sim-harness
+  rewrite below a concrete discrete step to mirror). Each tick: weapons fire automatically
+  against their assigned target whenever off-cooldown, in range, and unblocked; Supply/Energy
+  accrue at a per-tick rate instead of a round-end lump sum; building/terrain-edit commands
+  apply immediately and permanently on receipt, no batching; construction completes at a
+  `readyAt` timestamp instead of "both sides ready up"; victory conditions (base elimination,
+  incapacitation) are checked every tick; a single match clock (elapsed time vs. a fixed
+  `MATCH_SECONDS`, default ~180s) replaces `MAX_ROUNDS` and the `round_limit` condition.
+  Existing scoring (destruction/standing/reveal/hit points) and the incapacitation grace
+  window carry over restated in time terms rather than round terms — this is a re-plumbing of
+  `resolveRound`'s internals, not a redesign of what it scores. Pure `src/shared/`, zero
+  Roblox API calls, fully covered by a rewritten Lune test suite, `lune run test` passes.
+  Everything else below depends on this.
+- **Artifact:** `src/shared/rules.luau` (batch `resolveRound` → tick function), `state.luau`
+  (round counter → elapsed time / `readyAt` timestamps), `economy.luau` (lump accrual →
+  rate-based), `config.luau` (tick length, per-tick rates, `MATCH_SECONDS`), rewritten
+  `rules.spec.luau` / `state.spec.luau` / `economy.spec.luau`.
+
+### MatchService real-time loop
+
+- **Status:** open
+- **Prerequisites:** Real-time rules core
+- **Success criterion:** `server/MatchService.luau`'s phase state machine collapses from
+  `setup → plan → resolve → result` to `setup → one live phase (running entry 1's tick) →
+  result`. The immediate-apply/replay two-track command model (built for simultaneous-reveal
+  batching) is dropped entirely — a client's command applies immediately and permanently,
+  since nothing is secret enough to need holding it until a boundary once there's no
+  boundary. Match clock and victory checks run continuously off the live tick. Two Studio
+  clients can matchmake, complete setup, and play a full real-time match against each other
+  with the server remaining sole source of truth (unrevealed enemy structures still never
+  exist client-side before being revealed — §12's guarantee is unaffected by this rework).
+- **Artifact:** `server/MatchService.luau`, `server/Replication.luau` (push shape for a
+  continuous tick instead of a per-round batch), `server/CommandHandler.luau` as needed.
+
+### Bot re-adaptation
+
+- **Status:** open
+- **Prerequisites:** MatchService real-time loop
+- **Success criterion:** `server/Bot.luau` moves from one `decide()` call per PLAN phase to a
+  periodic re-decide cadence inside the live tick loop (config-driven interval). `Bot:decide`'s
+  existing idempotency (it only ever adds what it doesn't already have) is verified to hold
+  under repeated calls rather than the single call it was written against. Re-probe patience
+  and other difficulty knobs move from round-keyed to time-keyed staleness tracking. The bot
+  remains playable across all three difficulty presets under the same real-time cooldown/
+  economy rules a real player is held to.
+- **Artifact:** `server/Bot.luau`, `src/shared/botDifficulty.luau` (round-keyed → time-keyed
+  patience).
+
+### Client real-time UI
+
+- **Status:** open
+- **Prerequisites:** Real-time rules core, MatchService real-time loop
+- **Success criterion:** The round-based clock display is replaced by a single match clock
+  (elapsed/remaining time against `MATCH_SECONDS`) — **no round counter anywhere in the UI**;
+  rounds stop existing as a concept once this lands. Per-weapon cooldown indicators show live
+  off-cooldown state. Supply/Energy display updates continuously instead of jumping once per
+  round. Shot animation is event-driven — fires and animates as each weapon comes off
+  cooldown and resolves — instead of batched per-round. During setup, the base build tool is
+  **pre-selected by default** (base placement, and bulldoze-then-replace, are the only
+  actions available in setup, so requiring a manual tool selection first is a needless step).
+- **Artifact:** `src/client/UI/RoundClock.luau` (reworked into a match clock), `BuildPalette.
+  luau` (setup default tool), `StructureView.luau`, `Render.luau` event-driven hookup.
+- **Note:** A live-updating running score display (score currently only appears on the
+  Result screen) is a natural fit once scoring is event-driven rather than round-batched —
+  raised in Session 010 — but is **deferred**, not required for this entry's success
+  criterion. Revisit as a follow-up polish item once the above lands.
+
+### Sim harness rewrite
+
+- **Status:** open
+- **Prerequisites:** Real-time rules core
+- **Success criterion:** `sim/harness.luau` moves from discrete per-round match stepping to
+  discrete time-step stepping mirroring entry 1's fixed tick. Every existing round-keyed
+  metric — rounds-to-first-base, match-length distribution, comeback rate, cannon block rate,
+  victory-condition distribution, win-rate matrix — is re-derived in time-keyed terms (e.g.
+  time-to-first-base instead of rounds-to-first-base). `lune run sim` (round robin) and
+  `lune run sweep` both still run a full batch from the terminal and produce every metric.
+- **Artifact:** `sim/harness.luau`, `sim/archetypes/*`, `sim/sweep.luau`, `sim/metrics.luau`.
+- **Note:** Can run in either order relative to "Client real-time UI" — both only need "Real-
+  time rules core" done first.
 
 ### Ship polish and balance pass
 
 - **Status:** open, scope pending re-derivation
-- **Prerequisites:** Bot opponent, Simulation harness and first balance sweep, Real-time combat and economy (paradigm shift)
-- **Success criterion:** Resolve-phase feedback (projectile arcs, impacts, crumbling rubble, terrain rise/fall) is polished, the README documents run/sync/asset-name/config-tuning instructions, a balance pass is applied from the sweep's shortlist, and every self-playtest check from the proposal (win, loss, blocked shot, cleared shot, stale plot, exploit check, each victory condition, restart) passes.
+- **Prerequisites:** Bot opponent, Sim harness rewrite, Client real-time UI, Bot re-adaptation
+- **Success criterion:** Resolve-phase feedback (projectile arcs, impacts, crumbling rubble, terrain rise/fall) is polished, the README documents run/sync/asset-name/config-tuning instructions, a balance pass is applied from a fresh sweep shortlist (produced by the rewritten, time-keyed harness above — the Session 003 shortlist no longer applies), and every self-playtest check from the proposal (win, loss, blocked shot, cleared shot, stale plot, exploit check, each victory condition, restart) passes.
 - **Artifact:** polished client feedback, README, final tuned `config.luau`.
-- **Note:** "the sweep's shortlist" assumed the round-based sim harness (Session 003). Once
-  the real-time paradigm shift lands, the harness itself gets rewritten as a discrete
-  time-step simulator and every round-keyed metric gets re-derived — this entry's success
-  criterion will need updating once that shape is known, not before.
+- **Note:** Kept as one entry rather than split (Session 010 call) — the sim-harness port and
+  the balance sweep it enables are sequential steps of the same "get a trustworthy shortlist
+  again" effort, not independently useful halves.
 
 ---
 
