@@ -17,7 +17,7 @@ end
 
 function View.new(state, owner)
 	return {
-		round = state.round,
+		elapsed = state.elapsed,
 		board = state.board,
 		owner = owner,
 		opponent = opponentOf(owner),

@@ -8,21 +8,38 @@ local function withBase(x, y)
 	return { typeId = "base", x = x, y = y, hp = config.STRUCTURES.base.hp, underConstruction = false }
 end
 
-t.test("a structure cannot be placed on a cell being terrain-edited the same round (§8)", function()
+-- Shrinks build time and cannon cooldown to one tick each so combat tests don't
+-- need dozens of Rules.tick calls to get a weapon built and firing repeatedly.
+local function fastConfig()
+	local c = table.clone(config)
+	c.STRUCTURES = table.clone(config.STRUCTURES)
+	c.STRUCTURES.cannon = table.clone(config.STRUCTURES.cannon)
+	c.STRUCTURES.cannon.cooldown_seconds = c.TICK_SECONDS
+	c.BUILD_SECONDS = c.TICK_SECONDS
+	return c
+end
+
+local function advanceTicks(cfg, state, n)
+	local victory
+	for _ = 1, n do
+		state, _, victory = Rules.tick(cfg, state)
+		if victory then
+			break
+		end
+	end
+	return state, victory
+end
+
+t.test("commands apply immediately and permanently, so a terrain edit and a placement in sequence both take effect (no batching)", function()
 	local state = State.new(config)
-	state.round = 2 -- terrain editing unlocked
+	state.elapsed = config.UNLOCK_TIME.terrain_edit
 	state = State.withPlayer(state, "A", { resources = { supply = 100, energy = 10 } })
 
-	local commandsA = {
-		{ type = "raise", x = 10, y = 10 },
-		{ type = "place", typeId = "generator", x = 10, y = 10 }, -- rejected: same-round terrain edit
-		{ type = "place", typeId = "generator", x = 11, y = 10 }, -- unaffected, different cell
-	}
-	local newState = Rules.resolveRound(config, state, commandsA, {})
+	local afterRaise = Rules.applyCommand(config, state, "A", { type = "raise", x = 10, y = 10 })
+	local afterPlace = Rules.applyCommand(config, afterRaise, "A", { type = "place", typeId = "generator", x = 10, y = 10 })
 
-	t.expectEqual(Board.elevationAt(newState.board, 10, 10), 1)
-	t.expectTrue(#newState.players.A.structures == 1)
-	t.expectEqual(newState.players.A.structures[1].x, 11)
+	t.expectEqual(Board.elevationAt(afterPlace.board, 10, 10), 1)
+	t.expectEqual(#afterPlace.players.A.structures, 1)
 end)
 
 t.test("base elimination: a player with zero bases loses immediately", function()
@@ -55,23 +72,26 @@ t.test("a fully tied mutual elimination is a draw", function()
 	t.expectEqual(victory.winner, nil)
 end)
 
-t.test("round limit: the higher score wins if it completes with no elimination", function()
+t.test("time limit: the higher score wins if the match clock runs out with no elimination", function()
 	local state = State.new(config)
-	state.round = config.MAX_ROUNDS
+	state.elapsed = config.MATCH_SECONDS
 	state = State.withPlayer(state, "A", { structures = { withBase(6, 7) }, destructionPoints = 100 })
 	state = State.withPlayer(state, "B", { structures = { withBase(24, 7) }, destructionPoints = 50 })
 
 	local victory = Rules.checkVictory(config, state)
-	t.expectEqual(victory.condition, "round_limit")
+	t.expectEqual(victory.condition, "time_limit")
 	t.expectEqual(victory.winner, "A")
 end)
 
-t.test("incapacitation: a player with no weapon and no way to rebuild loses after the grace window, not before", function()
-	-- Zero SUPPLY_PER_ROUND isolates the "unrecoverable" check from the ordinary
-	-- per-round Supply accrual, which would otherwise refill past every threshold
-	-- this test cares about before the check even runs.
+t.test("incapacitation: a player with no weapon and no way to rebuild loses once the grace window expires, not before", function()
+	-- Zeroing Supply income and starting Supply isolates the "unrecoverable" check
+	-- from ordinary accrual, which would otherwise refill B past every threshold
+	-- this test cares about. A short grace window keeps the tick loop small while
+	-- still exercising the real elapsed-time mechanism, not just its formula.
 	local incapConfig = table.clone(config)
-	incapConfig.SUPPLY_PER_ROUND = 0
+	incapConfig.SUPPLY_PER_SECOND = 0
+	incapConfig.STARTING_SUPPLY = 0
+	incapConfig.INCAPACITATION_GRACE_SECONDS = 2 * config.TICK_SECONDS
 
 	local state = State.new(incapConfig)
 	state = State.withPlayer(state, "A", {
@@ -79,31 +99,36 @@ t.test("incapacitation: a player with no weapon and no way to rebuild loses afte
 	})
 	state = State.withPlayer(state, "B", { structures = { withBase(24, 7) } })
 
-	local afterRound1, _, victory1 = Rules.resolveRound(incapConfig, state, {}, {})
+	local afterTick1, victory1 = advanceTicks(incapConfig, state, 1)
 	t.expectEqual(victory1, nil)
-	t.expectEqual(afterRound1.players.B.incapableStreak, 1)
+	t.expectTrue(afterTick1.players.B.incapableSince ~= nil)
 
-	local afterRound2, _, victory2 = Rules.resolveRound(incapConfig, afterRound1, {}, {})
-	t.expectTrue(victory2 ~= nil)
-	t.expectEqual(victory2.condition, "incapacitation")
-	t.expectEqual(victory2.winner, "A")
+	local afterTick2, victory2 = advanceTicks(incapConfig, afterTick1, 1)
+	t.expectEqual(victory2, nil)
+
+	local _, victory3 = advanceTicks(incapConfig, afterTick2, 1)
+	t.expectTrue(victory3 ~= nil)
+	t.expectEqual(victory3.condition, "incapacitation")
+	t.expectEqual(victory3.winner, "A")
 end)
 
-t.test("resolveRound tracks fired/hit/blocked shots and returns raw resolution data for animation", function()
-	local state = State.new(config)
+t.test("Rules.tick fires an off-cooldown weapon automatically once its target and construction are set, and tracks fired/hit/blocked shots", function()
+	local cfg = fastConfig()
+	local state = State.new(cfg)
 	state = State.withPlayer(state, "A", { structures = { withBase(6, 7) } })
 	state = State.withPlayer(state, "B", {
-		structures = { withBase(24, 10), { typeId = "cannon", x = 20, y = 10, hp = config.STRUCTURES.cannon.hp, underConstruction = false } },
+		structures = { withBase(24, 10), { typeId = "cannon", x = 20, y = 10, hp = cfg.STRUCTURES.cannon.hp, underConstruction = false } },
 	})
 
-	local placeAndTarget = {
-		{ type = "place", typeId = "cannon", x = 17, y = 10 },
-		{ type = "target", x = 17, y = 10, targetX = 24, targetY = 10 },
-	}
-	local newState, _, _, resolution = Rules.resolveRound(config, state, placeAndTarget, {})
+	local afterPlace = Rules.applyCommand(cfg, state, "A", { type = "place", typeId = "cannon", x = 17, y = 10 })
+	local afterTarget = Rules.applyCommand(cfg, afterPlace, "A", { type = "target", x = 17, y = 10, targetX = 24, targetY = 10 })
 
-	-- A's cannon completes and fires this same resolve (§8: build completes next
-	-- RESOLVE, before volleys), landing a hit on B's base.
+	-- Tick 1: construction not ready yet (readyAt is one tick out). Tick 2: it
+	-- completes and, being off cooldown and targeted, fires this same tick (§8:
+	-- build completes, then the weapon can act, same tick).
+	local warmedUp = advanceTicks(cfg, afterTarget, 1)
+	local newState, _, _, resolution = Rules.tick(cfg, warmedUp)
+
 	t.expectEqual(newState.players.A.shotsFired, 1)
 	t.expectEqual(newState.players.A.shotsHit, 1)
 	t.expectEqual(newState.players.A.shotsBlocked, 0)
@@ -117,23 +142,25 @@ t.test("resolveRound tracks fired/hit/blocked shots and returns raw resolution d
 	t.expectEqual(#resolution.shotsB, 0)
 end)
 
-t.test("resolveRound awards hit points separately from destroy points", function()
-	local state = State.new(config)
+t.test("Rules.tick awards hit points separately from destroy points", function()
+	local cfg = fastConfig()
+	local state = State.new(cfg)
 	state = State.withPlayer(state, "A", { structures = { withBase(6, 7) } })
 	state = State.withPlayer(state, "B", { structures = { withBase(24, 10) } })
 
-	local placeAndTarget = {
-		{ type = "place", typeId = "cannon", x = 17, y = 10 },
-		{ type = "target", x = 17, y = 10, targetX = 24, targetY = 10 },
-	}
-	local newState = Rules.resolveRound(config, state, placeAndTarget, {})
+	local afterPlace = Rules.applyCommand(cfg, state, "A", { type = "place", typeId = "cannon", x = 17, y = 10 })
+	local afterTarget = Rules.applyCommand(cfg, afterPlace, "A", { type = "target", x = 17, y = 10, targetX = 24, targetY = 10 })
+
+	local warmedUp = advanceTicks(cfg, afterTarget, 1)
+	local newState = Rules.tick(cfg, warmedUp)
 
 	t.expectEqual(newState.players.A.destructionPoints, 0) -- the base survives this hit
 	t.expectEqual(newState.players.A.hitPoints, config.POINTS.hit.base)
 end)
 
-t.test("resolveRound awards reveal points once per newly-sighted live structure, not on re-sighting", function()
-	local state = State.new(config)
+t.test("Rules.tick awards reveal points once per newly-sighted live structure, not on re-sighting by the same weapon firing again", function()
+	local cfg = fastConfig()
+	local state = State.new(cfg)
 	state = State.withPlayer(state, "A", { structures = { withBase(6, 7) } })
 	state = State.withPlayer(state, "B", {
 		-- Both on B's own land (24-35): the generator at x=26 sits on the direct
@@ -144,42 +171,34 @@ t.test("resolveRound awards reveal points once per newly-sighted live structure,
 		},
 	})
 
-	local placeAndTarget = {
-		{ type = "place", typeId = "cannon", x = 17, y = 10 },
-		{ type = "target", x = 17, y = 10, targetX = 30, targetY = 10 },
-	}
-	-- The beam crosses the generator on the way to the base -- both get
-	-- revealed by this one shot, even though only the base takes damage.
-	local afterRound1 = Rules.resolveRound(config, state, placeAndTarget, {})
-	t.expectEqual(afterRound1.players.A.revealPoints, config.POINTS.reveal.base + config.POINTS.reveal.generator)
+	local afterPlace = Rules.applyCommand(cfg, state, "A", { type = "place", typeId = "cannon", x = 17, y = 10 })
+	local afterTarget = Rules.applyCommand(cfg, afterPlace, "A", { type = "target", x = 17, y = 10, targetX = 30, targetY = 10 })
 
-	local retarget = { { type = "target", x = 17, y = 10, targetX = 30, targetY = 10 } }
-	local afterRound2 = Rules.resolveRound(config, afterRound1, retarget, {})
-	t.expectEqual(afterRound2.players.A.revealPoints, afterRound1.players.A.revealPoints)
+	-- The beam crosses the generator on the way to the base -- both get revealed
+	-- by this first shot, even though only the base takes damage.
+	local warmedUp = advanceTicks(cfg, afterTarget, 1)
+	local afterFirstShot = Rules.tick(cfg, warmedUp)
+	t.expectEqual(afterFirstShot.players.A.revealPoints, config.POINTS.reveal.base + config.POINTS.reveal.generator)
+
+	-- The weapon fires again on its own once off cooldown, with no new target
+	-- command -- re-sighting the same live structures must not double-count.
+	local afterSecondShot = Rules.tick(cfg, afterFirstShot)
+	t.expectEqual(afterSecondShot.players.A.shotsFired, 2)
+	t.expectEqual(afterSecondShot.players.A.revealPoints, afterFirstShot.players.A.revealPoints)
 end)
 
-t.test("a full scripted match: place a cannon, fire it round after round, end on base elimination", function()
-	local state = State.new(config)
+t.test("a full scripted match: place a cannon, target once, let it fire on its own tick after tick until base elimination", function()
+	local cfg = fastConfig()
+	local state = State.new(cfg)
 	state = State.withPlayer(state, "A", { structures = { withBase(6, 7) } })
 	state = State.withPlayer(state, "B", { structures = { withBase(24, 10) } })
 
-	local placeAndTarget = {
-		{ type = "place", typeId = "cannon", x = 17, y = 10 },
-		{ type = "target", x = 17, y = 10, targetX = 24, targetY = 10 },
-	}
-	local afterRound1, _, victory1 = Rules.resolveRound(config, state, placeAndTarget, {})
-	t.expectEqual(victory1, nil)
-	t.expectFalse(afterRound1.players.A.structures[1].underConstruction) -- completed this same resolve
-	t.expectEqual(afterRound1.players.B.structures[1].hp, config.STRUCTURES.base.hp - config.STRUCTURES.cannon.damage)
+	local afterPlace = Rules.applyCommand(cfg, state, "A", { type = "place", typeId = "cannon", x = 17, y = 10 })
+	local afterTarget = Rules.applyCommand(cfg, afterPlace, "A", { type = "target", x = 17, y = 10, targetX = 24, targetY = 10 })
 
-	local retarget = { { type = "target", x = 17, y = 10, targetX = 24, targetY = 10 } }
-	local current = afterRound1
-	local victory = nil
-	for _ = 1, 3 do
-		local nextState, _, v = Rules.resolveRound(config, current, retarget, {})
-		current = nextState
-		victory = v
-	end
+	-- base hp 40 / cannon damage 10 = 4 hits: 1 tick to complete construction, then
+	-- 4 more ticks firing once per (one-tick) cooldown.
+	local current, victory = advanceTicks(cfg, afterTarget, 5)
 
 	t.expectTrue(victory ~= nil)
 	t.expectEqual(victory.condition, "base_elimination")

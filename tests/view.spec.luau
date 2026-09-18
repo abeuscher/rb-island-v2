@@ -10,7 +10,7 @@ local View = require("../src/shared/view")
 -- on the view -- these tests exist so that requirement stays enforced if the
 -- view ever grows.
 
-t.test("a view only ever carries round, board, owner, opponent, and self", function()
+t.test("a view only ever carries elapsed, board, owner, opponent, and self", function()
 	local state = State.new(config)
 	local view = View.new(state, "A")
 
@@ -19,7 +19,7 @@ t.test("a view only ever carries round, board, owner, opponent, and self", funct
 		table.insert(keys, key)
 	end
 	table.sort(keys)
-	t.expectEqual(table.concat(keys, ","), "board,opponent,owner,round,self")
+	t.expectEqual(table.concat(keys, ","), "board,elapsed,opponent,owner,self")
 end)
 
 t.test("a view exposes the owner's own resources, structures, and belief -- never the opponent's", function()

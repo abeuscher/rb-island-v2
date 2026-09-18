@@ -4,19 +4,22 @@ local Economy = {}
 
 function Economy.new(config)
 	return {
-		supply = config.SUPPLY_PER_ROUND,
+		supply = config.STARTING_SUPPLY,
 		energy = config.STARTING_ENERGY,
 	}
 end
 
+-- Per-second rate, not a per-tick amount -- callers scale by TICK_SECONDS themselves
+-- (Economy.tickAccrue does, isUnrecoverable in rules.luau checks the rate directly).
 function Economy.energyIncome(config, generatorCount)
-	return config.ENERGY_BASE + config.ENERGY_PER_GENERATOR * generatorCount
+	return config.ENERGY_BASE + config.ENERGY_PER_GENERATOR_PER_SECOND * generatorCount
 end
 
-function Economy.accrue(config, resources, generatorCount)
+function Economy.tickAccrue(config, resources, generatorCount)
+	local dt = config.TICK_SECONDS
 	return {
-		supply = resources.supply + config.SUPPLY_PER_ROUND,
-		energy = math.min(config.ENERGY_CAP, resources.energy + Economy.energyIncome(config, generatorCount)),
+		supply = resources.supply + config.SUPPLY_PER_SECOND * dt,
+		energy = math.min(config.ENERGY_CAP, resources.energy + Economy.energyIncome(config, generatorCount) * dt),
 	}
 end
 

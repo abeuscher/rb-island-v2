@@ -2,21 +2,21 @@ local t = require("./testkit")
 local config = require("../src/shared/config")
 local Economy = require("../src/shared/economy")
 
-t.test("players open with one round of Supply and their starting Energy", function()
+t.test("players open with starting Supply and starting Energy", function()
 	local resources = Economy.new(config)
-	t.expectEqual(resources.supply, config.SUPPLY_PER_ROUND)
+	t.expectEqual(resources.supply, config.STARTING_SUPPLY)
 	t.expectEqual(resources.energy, config.STARTING_ENERGY)
 end)
 
 t.test("Energy income is zero with no generators, since ENERGY_BASE is zero", function()
 	t.expectEqual(Economy.energyIncome(config, 0), 0)
-	t.expectEqual(Economy.energyIncome(config, 2), 2 * config.ENERGY_PER_GENERATOR)
+	t.expectEqual(Economy.energyIncome(config, 2), 2 * config.ENERGY_PER_GENERATOR_PER_SECOND)
 end)
 
-t.test("accrue adds Supply uncapped and Energy capped at ENERGY_CAP", function()
-	local resources = { supply = 5, energy = config.ENERGY_CAP - 1 }
-	local accrued = Economy.accrue(config, resources, 3)
-	t.expectEqual(accrued.supply, 5 + config.SUPPLY_PER_ROUND)
+t.test("tickAccrue adds Supply uncapped and Energy capped at ENERGY_CAP, scaled by TICK_SECONDS", function()
+	local resources = { supply = 5, energy = config.ENERGY_CAP }
+	local accrued = Economy.tickAccrue(config, resources, 3)
+	t.expectEqual(accrued.supply, 5 + config.SUPPLY_PER_SECOND * config.TICK_SECONDS)
 	t.expectEqual(accrued.energy, config.ENERGY_CAP)
 end)
 

@@ -61,7 +61,7 @@ function Kit.candidateCells(config, view, typeId, reserved)
 	local minX, maxX = territoryXRange(view, view.owner)
 	for x = minX, maxX do
 		for y = 1, view.board.height do
-			if Structures.canPlace(config, view.board, view.self.structures, view.owner, typeId, x, y, view.round) then
+			if Structures.canPlace(config, view.board, view.self.structures, view.owner, typeId, x, y, view.elapsed) then
 				local blocked = false
 				if reserved then
 					for _, k in ipairs(footprintKeys(config, typeId, x, y)) do

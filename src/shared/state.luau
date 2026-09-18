@@ -23,13 +23,16 @@ local function newPlayerState(config)
 		shotsFired = 0,
 		shotsHit = 0,
 		shotsBlocked = 0,
-		incapableStreak = 0,
+		-- Elapsed-match-time timestamp of when this player first became incapable
+		-- and unrecoverable, or nil while they aren't. Restates the old round-streak
+		-- in time terms (§5.2's grace window is now INCAPACITATION_GRACE_SECONDS).
+		incapableSince = nil,
 	}
 end
 
 function State.new(config)
 	return {
-		round = 1,
+		elapsed = 0,
 		board = Board.new(config),
 		players = {
 			A = newPlayerState(config),
@@ -57,7 +60,7 @@ end
 State.withPlayer = withPlayer
 
 local function requireUnlocked(config, state, feature)
-	if state.round < config.UNLOCK_ROUND[feature] then
+	if state.elapsed < config.UNLOCK_TIME[feature] then
 		return false, feature .. " is not unlocked yet"
 	end
 	return true, nil
@@ -70,7 +73,7 @@ function State.placeStructure(config, state, owner, typeId, x, y)
 		return state, false, "unknown structure type"
 	end
 
-	local newStructures, ok, err = Structures.place(config, state.board, player.structures, owner, typeId, x, y, state.round)
+	local newStructures, ok, err = Structures.place(config, state.board, player.structures, owner, typeId, x, y, state.elapsed)
 	if not ok then
 		return state, false, err
 	end
@@ -179,26 +182,38 @@ function State.reclaimLand(config, state, owner, x, y)
 	return newState, true, nil
 end
 
--- RESOLVE-phase steps shared by both players; round-order sequencing (§4) is the
--- next session's rules.luau concern, but the per-step transforms live here since
+-- Sets or clears the target a live weapon at (x, y) fires at automatically whenever
+-- it's off-cooldown -- applied immediately and permanently on receipt, like every
+-- other command.
+function State.setTarget(config, state, owner, x, y, targetX, targetY)
+	local player = state.players[owner]
+	local newStructures, ok, err = Structures.setTarget(config, player.structures, x, y, targetX, targetY)
+	if not ok then
+		return state, false, err
+	end
+	return withPlayer(state, owner, { structures = newStructures }), true, nil
+end
+
+-- Per-tick steps shared by both players; tick sequencing (§4, restated in time
+-- terms) is rules.luau's concern, but the per-step transforms live here since
 -- they're pure state operations.
 
 function State.completeConstruction(config, state)
 	local newState = withPlayer(state, "A", {
 		resources = state.players.A.resources,
-		structures = Structures.completeConstruction(config, state.players.A.structures),
+		structures = Structures.completeConstruction(config, state.players.A.structures, state.elapsed),
 	})
 	return withPlayer(newState, "B", {
 		resources = newState.players.B.resources,
-		structures = Structures.completeConstruction(config, newState.players.B.structures),
+		structures = Structures.completeConstruction(config, newState.players.B.structures, state.elapsed),
 	})
 end
 
-function State.accrueIncome(config, state)
+function State.tickAccrue(config, state)
 	local function accrued(player)
 		local generatorCount = Structures.countLive(player.structures, "generator")
 		return {
-			resources = Economy.accrue(config, player.resources, generatorCount),
+			resources = Economy.tickAccrue(config, player.resources, generatorCount),
 			structures = player.structures,
 		}
 	end

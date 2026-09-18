@@ -12,24 +12,29 @@ return {
 	LOWER_COST = 2,
 	RECLAIM_COST = 12,
 
-	SUPPLY_PER_ROUND = 10,
+	-- Per-second rates; each tick accrues rate * TICK_SECONDS. Magnitudes carried
+	-- over from the old per-round lump amounts divided by the ~20s a testing-config
+	-- round used to take, not a fresh balance pass.
+	SUPPLY_PER_SECOND = 0.5,
+	STARTING_SUPPLY = 10,
 	ENERGY_BASE = 0,
-	ENERGY_PER_GENERATOR = 2,
+	ENERGY_PER_GENERATOR_PER_SECOND = 0.1,
 	ENERGY_CAP = 12,
 	STARTING_ENERGY = 4,
 
-	MAX_ROUNDS = 5,
-	INCAPACITATION_GRACE_ROUNDS = 2,
-	PLAN_SECONDS = 10, -- shortened for testing; restore toward 45 once the loop is playtested (§18)
-	RESOLVE_SECONDS = 10,
+	TICK_SECONDS = 0.5,
+	MATCH_SECONDS = 180,
+	BUILD_SECONDS = 5,
+	INCAPACITATION_GRACE_SECONDS = 40,
 
 	NUM_BASES = 3,
 	SIM_MATCHES_PER_PAIR = 200,
 
-	UNLOCK_ROUND = {
-		terrain_edit = 2,
-		mortar = 3,
-		reclamation = 4,
+	-- Seconds of elapsed match time, replacing the old round-keyed UNLOCK_ROUND.
+	-- Evenly spaced placeholders standing in for the old round cadence, pending §18.
+	UNLOCK_TIME = {
+		terrain_edit = 20,
+		reclamation = 60,
 	},
 
 	POINTS = {
@@ -57,7 +62,7 @@ return {
 			damage = 0,
 			splash = nil,
 			reveal_mode = nil,
-			unlock_round = 1,
+			unlock_time = 0,
 		},
 		generator = {
 			id = "generator",
@@ -72,7 +77,7 @@ return {
 			damage = 0,
 			splash = nil,
 			reveal_mode = nil,
-			unlock_round = 1,
+			unlock_time = 0,
 		},
 		cannon = {
 			id = "cannon",
@@ -85,9 +90,10 @@ return {
 			range = 20, -- doubled for testing so weapons aren't pinned to the frontline (§18)
 			elevation_range_bonus = 2,
 			damage = 10,
+			cooldown_seconds = 5,
 			splash = nil,
 			reveal_mode = "beam",
-			unlock_round = 1,
+			unlock_time = 0,
 		},
 		mortar = {
 			id = "mortar",
@@ -100,9 +106,10 @@ return {
 			range = 32, -- doubled for testing, matching the cannon (§18)
 			elevation_range_bonus = 0,
 			damage = 14,
+			cooldown_seconds = 5,
 			splash = { amount = 6, pattern = "orthogonal" },
 			reveal_mode = "impact",
-			unlock_round = 3,
+			unlock_time = 40,
 		},
 	},
 }

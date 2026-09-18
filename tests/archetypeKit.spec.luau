@@ -3,9 +3,9 @@ local config = require("../src/shared/config")
 local Board = require("../src/shared/board")
 local Kit = require("../src/shared/archetypeKit")
 
-local function makeView(round, owner, structures, belief)
+local function makeView(elapsed, owner, structures, belief)
 	return {
-		round = round,
+		elapsed = elapsed,
 		board = Board.new(config),
 		owner = owner,
 		opponent = (owner == "A") and "B" or "A",

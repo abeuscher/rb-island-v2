@@ -166,7 +166,7 @@ for it.
 
 ### Real-time rules core
 
-- **Status:** open
+- **Status:** done (Session 011)
 - **Prerequisites:** Bot opponent
 - **Success criterion:** `resolveRound`'s batch model (validate a whole PLAN-phase command
   set, then run the fixed RESOLVE step order) is replaced by a tick function evaluated on a
@@ -188,6 +188,19 @@ for it.
   (round counter → elapsed time / `readyAt` timestamps), `economy.luau` (lump accrual →
   rate-based), `config.luau` (tick length, per-tick rates, `MATCH_SECONDS`), rewritten
   `rules.spec.luau` / `state.spec.luau` / `economy.spec.luau`.
+- **Outcome:** `Rules.resolveRound` split into `Rules.applyCommand` (immediate, permanent,
+  one command at a time — the old same-round terrain-edit/placement batch-conflict rule was
+  dropped entirely, since sequential immediate application resolves it structurally) and
+  `Rules.tick` (construction, automatic cooldown-gated weapon fire against a shared pre-tick
+  snapshot, income, incapacitation, victory). Weapon targets persist on the structure
+  (`Structures.setTarget`) instead of being resent every round. `round_limit` renamed
+  `time_limit`. Two adjacent shared-layer files broke and got trivial fixes to keep
+  `lune run test` green: `view.luau`'s `round` field → `elapsed`, and `archetypeKit.luau`'s
+  one reference to it — neither a redesign of `server/`/`sim/` logic, still out of scope.
+  `resolveView.luau` (a per-round batch animation shim) and its spec were deleted as obsolete
+  under continuous ticks rather than patched — the entry below owns its replacement.
+  `server/MatchService.luau`, `server/Bot.luau`, `sim/harness.luau`, `sim/archetypes/*`, and
+  round-based client UI are now broken against this, as expected. `lune run test`: 78/78.
 
 ### MatchService real-time loop
 

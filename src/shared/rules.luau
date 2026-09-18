@@ -1,7 +1,8 @@
--- Whole-round resolution. Validates each side's PLAN-phase command batch together
--- (this is where §8's same-round terrain-edit/placement interaction is enforced),
--- then runs the fixed RESOLVE order from §4: terrain, construction, simultaneous
--- volleys, damage, reveals, income, victory check.
+-- Real-time tick resolution. Commands (place/bulldoze/raise/lower/reclaim/target)
+-- apply immediately and permanently through Rules.applyCommand; Rules.tick advances
+-- the match by one fixed heartbeat (config.TICK_SECONDS): construction completion,
+-- automatic weapon fire, income, incapacitation, and victory, all evaluated every
+-- tick in place of the old once-per-round RESOLVE step order (§4).
 
 local Board = require("./board")
 local Economy = require("./economy")
@@ -25,68 +26,28 @@ local function opponentOf(owner)
 	return "A"
 end
 
--- ## PLAN-phase command application ##
+-- ## Command application ##
+-- Each command applies immediately and permanently on receipt -- no batching, no
+-- same-tick conflict rules to enforce, since commands are simply sequential.
 
-local function footprintKeys(config, typeId, x, y)
-	local size = config.STRUCTURES[typeId] and config.STRUCTURES[typeId].footprint or 1
-	local keys = {}
-	for dx = 0, size - 1 do
-		for dy = 0, size - 1 do
-			table.insert(keys, key(x + dx, y + dy))
-		end
+function Rules.applyCommand(config, state, owner, cmd)
+	if cmd.type == "place" then
+		return State.placeStructure(config, state, owner, cmd.typeId, cmd.x, cmd.y)
+	elseif cmd.type == "bulldoze" then
+		return State.bulldozeStructure(config, state, owner, cmd.x, cmd.y)
+	elseif cmd.type == "raise" then
+		return State.raiseTerrain(config, state, owner, cmd.x, cmd.y)
+	elseif cmd.type == "lower" then
+		return State.lowerTerrain(config, state, owner, cmd.x, cmd.y)
+	elseif cmd.type == "reclaim" then
+		return State.reclaimLand(config, state, owner, cmd.x, cmd.y)
+	elseif cmd.type == "target" then
+		return State.setTarget(config, state, owner, cmd.x, cmd.y, cmd.targetX, cmd.targetY)
 	end
-	return keys
+	return state, false, "unknown command type"
 end
 
--- Applies one player's whole command batch for the round. Invalid commands are
--- simply dropped (an unaffordable purchase or an out-of-territory edit never took
--- effect) -- surfacing rejection reasons to a player is the future CommandHandler's
--- job (§12), not this pure layer's.
-local function applyPlayerCommands(config, state, owner, commands)
-	local terrainEditedCells = {}
-	for _, cmd in ipairs(commands) do
-		if cmd.type == "raise" or cmd.type == "lower" or cmd.type == "reclaim" then
-			terrainEditedCells[key(cmd.x, cmd.y)] = true
-		end
-	end
-
-	local newState = state
-	for _, cmd in ipairs(commands) do
-		if cmd.type == "place" then
-			local blockedByTerrainEdit = false
-			for _, footKey in ipairs(footprintKeys(config, cmd.typeId, cmd.x, cmd.y)) do
-				if terrainEditedCells[footKey] then
-					blockedByTerrainEdit = true
-					break
-				end
-			end
-			if not blockedByTerrainEdit then
-				newState = State.placeStructure(config, newState, owner, cmd.typeId, cmd.x, cmd.y)
-			end
-		elseif cmd.type == "bulldoze" then
-			newState = State.bulldozeStructure(config, newState, owner, cmd.x, cmd.y)
-		elseif cmd.type == "raise" then
-			newState = State.raiseTerrain(config, newState, owner, cmd.x, cmd.y)
-		elseif cmd.type == "lower" then
-			newState = State.lowerTerrain(config, newState, owner, cmd.x, cmd.y)
-		elseif cmd.type == "reclaim" then
-			newState = State.reclaimLand(config, newState, owner, cmd.x, cmd.y)
-		end
-	end
-	return newState
-end
-
-local function extractTargets(commands)
-	local targets = {}
-	for _, cmd in ipairs(commands) do
-		if cmd.type == "target" then
-			targets[key(cmd.x, cmd.y)] = { x = cmd.targetX, y = cmd.targetY }
-		end
-	end
-	return targets
-end
-
--- ## Simultaneous volley resolution ##
+-- ## Automatic weapon fire ##
 
 local function applyWeaponDamage(config, def, opponentStructures, impactCell)
 	local destroyedStructures = {}
@@ -119,60 +80,97 @@ local function applyWeaponDamage(config, def, opponentStructures, impactCell)
 	return opponentStructures, destroyedStructures, events, hitPoints
 end
 
--- Resolves everything one player's weapons do this round against the OTHER
--- player's structures as they stood at the START of this resolve step. Both
--- players' calls read that same pre-volley snapshot (see resolveVolleys below), so
--- neither side's fire can be affected by damage the other side lands this round --
--- true simultaneity, including a weapon that is itself destroyed this round still
--- getting its shot off.
-local function resolvePlayerVolley(config, board, owner, weapons, targets, resources, opponentStructures)
-	local shots = {}
-	local destroyedStructures = {}
-	local events = {}
-	local hitPoints = 0
-
+-- Decides which of `weapons` (one player's own, as they stood at the start of this
+-- tick) fire this tick: off cooldown, targeted into the opponent's territory, in
+-- range, and affordable. Resolved purely from the owner's own state and the board
+-- -- shot geometry never depends on the opponent's structures, only the damage step
+-- does -- so this can run for both players against the same pre-tick snapshot
+-- without either side's fire affected by the other's, including a weapon that is
+-- itself destroyed this tick still getting its shot off.
+local function planShots(config, board, owner, weapons, resources, now)
+	local firings = {}
 	for _, weapon in ipairs(weapons) do
 		local def = config.STRUCTURES[weapon.typeId]
-		if def.fire_mode and not weapon.underConstruction then
-			local target = targets[key(weapon.x, weapon.y)]
-			if target and Board.ownerOf(board, target.x, target.y) == opponentOf(owner) then
+		if def.fire_mode and not weapon.underConstruction and weapon.target and now >= (weapon.nextFireAt or 0) then
+			local target = weapon.target
+			if Board.ownerOf(board, target.x, target.y) == opponentOf(owner) then
 				local cost = { energy = def.energy_cost }
 				if Economy.canAfford(resources, cost) then
 					local shot = Flight.resolveShot(board, def, weapon.x, weapon.y, target.x, target.y)
 					if shot.inRange then
 						resources = Economy.spend(resources, cost)
-						table.insert(shots, { def = def, shot = shot, owner = owner, origin = { x = weapon.x, y = weapon.y }, hit = false })
-						table.insert(events, {
-							type = "shot",
-							owner = owner,
-							weapon = { x = weapon.x, y = weapon.y },
-							target = { x = target.x, y = target.y },
-							blocked = shot.blocked,
-						})
-
-						-- A blocked direct shot impacts terrain for no damage (§10).
-						if not (def.fire_mode == "direct" and shot.blocked) then
-							local newOpponentStructures, destroyed, damageEvents, damageHitPoints = applyWeaponDamage(config, def, opponentStructures, shot.impactCell)
-							opponentStructures = newOpponentStructures
-							hitPoints += damageHitPoints
-							-- damageEvents[1] is always the primary impact-cell hit (splash
-							-- neighbors, if any, follow it) -- that's what "a shot that hit"
-							-- means for the Result screen's shot breakdown.
-							shots[#shots].hit = damageEvents[1] ~= nil and damageEvents[1].hit or false
-							for _, destroyedStructure in ipairs(destroyed) do
-								table.insert(destroyedStructures, destroyedStructure)
-							end
-							for _, damageEvent in ipairs(damageEvents) do
-								table.insert(events, damageEvent)
-							end
-						end
+						table.insert(firings, { def = def, shot = shot, owner = owner, origin = { x = weapon.x, y = weapon.y }, target = target })
 					end
 				end
 			end
 		end
 	end
+	return firings, resources
+end
 
-	return opponentStructures, resources, shots, destroyedStructures, events, hitPoints
+-- Applies one side's planned firings to the opponent's structures (as they stood at
+-- the start of this tick).
+local function applyFirings(config, firings, opponentStructures)
+	local shots = {}
+	local destroyedStructures = {}
+	local events = {}
+	local hitPoints = 0
+
+	for _, firing in ipairs(firings) do
+		local shot = { def = firing.def, shot = firing.shot, owner = firing.owner, origin = firing.origin, hit = false }
+		table.insert(shots, shot)
+		table.insert(events, {
+			type = "shot",
+			owner = firing.owner,
+			weapon = firing.origin,
+			target = firing.target,
+			blocked = firing.shot.blocked,
+		})
+
+		-- A blocked direct shot impacts terrain for no damage (§10).
+		if not (firing.def.fire_mode == "direct" and firing.shot.blocked) then
+			local newOpponentStructures, destroyed, damageEvents, damageHitPoints = applyWeaponDamage(config, firing.def, opponentStructures, firing.shot.impactCell)
+			opponentStructures = newOpponentStructures
+			hitPoints += damageHitPoints
+			-- damageEvents[1] is always the primary impact-cell hit (splash
+			-- neighbors, if any, follow it) -- that's what "a shot that hit"
+			-- means for the Result screen's shot breakdown.
+			shot.hit = damageEvents[1] ~= nil and damageEvents[1].hit or false
+			for _, destroyedStructure in ipairs(destroyed) do
+				table.insert(destroyedStructures, destroyedStructure)
+			end
+			for _, damageEvent in ipairs(damageEvents) do
+				table.insert(events, damageEvent)
+			end
+		end
+	end
+
+	return opponentStructures, destroyedStructures, events, hitPoints, shots
+end
+
+-- Puts fired weapons on cooldown, applied after the opponent's simultaneous damage
+-- so a weapon destroyed this same tick is simply gone rather than resurrected with
+-- a cooldown. Looked up by cell rather than by index since the damage pass may have
+-- removed or reordered entries.
+local function applyCooldowns(config, list, firings, now)
+	for _, firing in ipairs(firings) do
+		local x, y = firing.origin.x, firing.origin.y
+		local target = Structures.at(config.STRUCTURES, list, x, y)
+		if target then
+			local newList = {}
+			for _, structure in ipairs(list) do
+				if structure == target then
+					local updated = table.clone(structure)
+					updated.nextFireAt = now + firing.def.cooldown_seconds
+					table.insert(newList, updated)
+				else
+					table.insert(newList, structure)
+				end
+			end
+			list = newList
+		end
+	end
+	return list
 end
 
 local function destroyedCellSet(config, destroyedStructures)
@@ -245,8 +243,8 @@ end
 -- Points for newly sighting a live enemy structure -- a cell that wasn't known
 -- to hold one (never revealed, revealed as empty/rubble, or last seen mid-
 -- construction) and now is. Compares the whole belief map before/after this
--- round's reveals rather than per-shot, so a cell touched by more than one shot
--- this round (or already known) is never double-counted.
+-- tick's reveals rather than per-shot, so a cell touched by more than one shot
+-- this tick (or already known) is never double-counted.
 local function revealPointsEarned(config, oldBelief, newBelief)
 	local points = 0
 	for cellKey, cell in pairs(newBelief) do
@@ -274,8 +272,9 @@ local function decideByPoints(config, state)
 		return (lostA < lostB) and "A" or "B"
 	end
 
-	-- Rounds elapsed is identical for both players in a single 1v1 match; kept for
-	-- fidelity to §5.4's tiebreak chain even though it can never decide anything here.
+	-- Elapsed match time is identical for both players in a single 1v1 match; kept
+	-- for fidelity to §5.4's tiebreak chain even though it can never decide anything
+	-- here.
 	return nil
 end
 
@@ -344,9 +343,14 @@ function Rules.checkVictory(config, state)
 		return { condition = "base_elimination", winner = (basesA == 0) and "B" or "A" }
 	end
 
-	local graceLimit = config.INCAPACITATION_GRACE_ROUNDS
-	local incapA = state.players.A.incapableStreak >= graceLimit
-	local incapB = state.players.B.incapableStreak >= graceLimit
+	-- Restates the old round-streak in time terms: a player is only eliminated once
+	-- they've been continuously incapable and unrecoverable for the whole grace
+	-- window, not just at the instant they first become so.
+	local function graceExpired(playerState)
+		return playerState.incapableSince ~= nil and (state.elapsed - playerState.incapableSince) >= config.INCAPACITATION_GRACE_SECONDS
+	end
+	local incapA = graceExpired(state.players.A)
+	local incapB = graceExpired(state.players.B)
 	if incapA or incapB then
 		if incapA and incapB then
 			return { condition = "incapacitation", winner = decideByPoints(config, state) }
@@ -354,45 +358,33 @@ function Rules.checkVictory(config, state)
 		return { condition = "incapacitation", winner = incapA and "B" or "A" }
 	end
 
-	if state.round >= config.MAX_ROUNDS then
-		return { condition = "round_limit", winner = decideByPoints(config, state) }
+	if state.elapsed >= config.MATCH_SECONDS then
+		return { condition = "time_limit", winner = decideByPoints(config, state) }
 	end
 
 	return nil
 end
 
--- ## Round resolution ##
+-- ## Tick resolution ##
 
-function Rules.resolveRound(config, state, commandsA, commandsB)
+function Rules.tick(config, state)
 	local events = {}
+	local now = state.elapsed
 
-	local newState = applyPlayerCommands(config, state, "A", commandsA)
-	newState = applyPlayerCommands(config, newState, "B", commandsB)
-
-	newState = State.completeConstruction(config, newState)
+	local newState = State.completeConstruction(config, state)
 	local preCombatState = newState
 
-	local targetsA = extractTargets(commandsA)
-	local targetsB = extractTargets(commandsB)
+	local structsA0 = newState.players.A.structures
+	local structsB0 = newState.players.B.structures
 
-	local newStructsB, newResourcesA, shotsA, destroyedB, eventsA, hitPointsA = resolvePlayerVolley(
-		config,
-		newState.board,
-		"A",
-		newState.players.A.structures,
-		targetsA,
-		newState.players.A.resources,
-		newState.players.B.structures
-	)
-	local newStructsA, newResourcesB, shotsB, destroyedA, eventsB, hitPointsB = resolvePlayerVolley(
-		config,
-		newState.board,
-		"B",
-		newState.players.B.structures,
-		targetsB,
-		newState.players.B.resources,
-		newState.players.A.structures
-	)
+	local firingsA, newResourcesA = planShots(config, newState.board, "A", structsA0, newState.players.A.resources, now)
+	local firingsB, newResourcesB = planShots(config, newState.board, "B", structsB0, newState.players.B.resources, now)
+
+	local newStructsB, destroyedB, eventsA, hitPointsA, shotsA = applyFirings(config, firingsA, structsB0)
+	local newStructsA, destroyedA, eventsB, hitPointsB, shotsB = applyFirings(config, firingsB, structsA0)
+
+	newStructsA = applyCooldowns(config, newStructsA, firingsA, now)
+	newStructsB = applyCooldowns(config, newStructsB, firingsB, now)
 
 	for _, e in ipairs(eventsA) do
 		table.insert(events, e)
@@ -479,20 +471,20 @@ function Rules.resolveRound(config, state, commandsA, commandsB)
 		shotsBlocked = newState.players.B.shotsBlocked + blockedB,
 	})
 
-	newState = State.accrueIncome(config, newState)
+	newState = State.tickAccrue(config, newState)
 
 	for _, owner in ipairs({ "A", "B" }) do
 		local player = newState.players[owner]
 		local incap = isIncapableNow(config, player.structures, player.resources) and isUnrecoverable(config, player.structures, player.resources)
-		local streak = incap and (player.incapableStreak + 1) or 0
-		newState = State.withPlayer(newState, owner, { incapableStreak = streak })
+		local since = incap and (player.incapableSince or now) or nil
+		newState = State.withPlayer(newState, owner, { incapableSince = since })
 	end
 
 	local victory = Rules.checkVictory(config, newState)
 	if victory then
 		table.insert(events, { type = "victory", result = victory })
 	else
-		newState.round = newState.round + 1
+		newState.elapsed = newState.elapsed + config.TICK_SECONDS
 	end
 
 	-- Raw per-side shot/destruction data, for a client that wants to animate the

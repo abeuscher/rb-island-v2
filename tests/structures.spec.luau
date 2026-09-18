@@ -75,7 +75,7 @@ t.test("completeConstruction restores full HP and live status", function()
 
 	t.expectEqual(Structures.countLive(afterPlace, "generator"), 0)
 
-	local afterComplete = Structures.completeConstruction(config, afterPlace)
+	local afterComplete = Structures.completeConstruction(config, afterPlace, afterPlace[1].readyAt)
 	t.expectFalse(afterComplete[1].underConstruction)
 	t.expectEqual(afterComplete[1].hp, config.STRUCTURES.generator.hp)
 	t.expectEqual(Structures.countLive(afterComplete, "generator"), 1)

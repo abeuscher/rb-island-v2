@@ -35,12 +35,12 @@ function Structures.at(roster, list, x, y)
 	return nil
 end
 
-function Structures.canPlace(config, board, list, owner, typeId, x, y, round)
+function Structures.canPlace(config, board, list, owner, typeId, x, y, elapsed)
 	local def = config.STRUCTURES[typeId]
 	if not def then
 		return false, "unknown structure type"
 	end
-	if round < def.unlock_round then
+	if elapsed < def.unlock_time then
 		return false, "not unlocked yet"
 	end
 
@@ -62,8 +62,8 @@ function Structures.canPlace(config, board, list, owner, typeId, x, y, round)
 	return true, nil
 end
 
-function Structures.place(config, board, list, owner, typeId, x, y, round)
-	local ok, err = Structures.canPlace(config, board, list, owner, typeId, x, y, round)
+function Structures.place(config, board, list, owner, typeId, x, y, elapsed)
+	local ok, err = Structures.canPlace(config, board, list, owner, typeId, x, y, elapsed)
 	if not ok then
 		return list, false, err
 	end
@@ -76,6 +76,9 @@ function Structures.place(config, board, list, owner, typeId, x, y, round)
 		y = y,
 		hp = math.floor(def.hp / 2),
 		underConstruction = true,
+		readyAt = elapsed + config.BUILD_SECONDS,
+		target = nil,
+		nextFireAt = 0,
 	})
 	return newList, true, nil
 end
@@ -95,10 +98,12 @@ function Structures.bulldoze(config, list, x, y)
 	return newList, true, nil
 end
 
-function Structures.completeConstruction(config, list)
+-- Ticks construction forward: a structure whose readyAt has passed goes live at
+-- full HP. Structures not yet ready pass through unchanged.
+function Structures.completeConstruction(config, list, elapsed)
 	local newList = {}
 	for _, structure in ipairs(list) do
-		if structure.underConstruction then
+		if structure.underConstruction and elapsed >= structure.readyAt then
 			local def = config.STRUCTURES[structure.typeId]
 			local updated = table.clone(structure)
 			updated.underConstruction = false
@@ -109,6 +114,28 @@ function Structures.completeConstruction(config, list)
 		end
 	end
 	return newList
+end
+
+-- Sets (or clears, with targetX/targetY nil) the persistent target a weapon fires
+-- at whenever it's off-cooldown, in range, and unblocked -- assigned once, not
+-- resupplied every round.
+function Structures.setTarget(config, list, x, y, targetX, targetY)
+	local target = Structures.at(config.STRUCTURES, list, x, y)
+	if not target or not config.STRUCTURES[target.typeId].fire_mode then
+		return list, false, "no weapon there"
+	end
+
+	local newList = {}
+	for _, structure in ipairs(list) do
+		if structure == target then
+			local updated = table.clone(structure)
+			updated.target = targetX and { x = targetX, y = targetY } or nil
+			table.insert(newList, updated)
+		else
+			table.insert(newList, structure)
+		end
+	end
+	return newList, true, nil
 end
 
 -- Applies damage to whatever structure occupies (x, y), regardless of footprint size
