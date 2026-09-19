@@ -43,6 +43,8 @@ function Rules.applyCommand(config, state, owner, cmd)
 		return State.reclaimLand(config, state, owner, cmd.x, cmd.y)
 	elseif cmd.type == "target" then
 		return State.setTarget(config, state, owner, cmd.x, cmd.y, cmd.targetX, cmd.targetY)
+	elseif cmd.type == "autoFire" then
+		return State.setAutoFire(config, state, owner, cmd.x, cmd.y, cmd.enabled)
 	end
 	return state, false, "unknown command type"
 end

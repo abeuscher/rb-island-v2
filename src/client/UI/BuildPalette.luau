@@ -259,11 +259,19 @@ function BuildPalette.mount(parent, controller)
 			local targetText = weapon.target and string.format("-> (%d, %d)", weapon.target.x, weapon.target.y)
 				or "-> unassigned"
 			local cooldownText
+			local notPowered = false
 			if weapon.underConstruction then
 				cooldownText = "building"
 			else
 				local secondsLeft = math.max(0, (weapon.nextFireAt or 0) - controller.state.elapsed)
-				cooldownText = secondsLeft > 0 and string.format("cooling %ds", math.ceil(secondsLeft)) or "ready"
+				if secondsLeft > 0 then
+					cooldownText = string.format("cooling %ds", math.ceil(secondsLeft))
+				elseif not weapon.powered then
+					cooldownText = "not powered"
+					notPowered = true
+				else
+					cooldownText = "ready"
+				end
 			end
 			local button = makeButton(
 				string.format("%s (%d,%d) %s [%s]", weapon.typeId, weapon.x, weapon.y, targetText, cooldownText),
@@ -271,6 +279,7 @@ function BuildPalette.mount(parent, controller)
 				weaponList
 			)
 			button.TextXAlignment = Enum.TextXAlignment.Left
+			button.TextColor3 = notPowered and UNAFFORDABLE_TEXT_COLOR or AFFORDABLE_TEXT_COLOR
 			button.MouseButton1Click:Connect(function()
 				controller:armTarget(weapon)
 				setActive(nil)

@@ -227,8 +227,9 @@ function Bot:decide(config, view)
 	-- Reassigns every live weapon a target each call, including ones that already
 	-- have one -- incidentally what keeps the bot's weapons firing at all now that
 	-- a fired shot clears its own target by default (§18): this periodic re-decide
-	-- is effectively the bot's own hand re-arming them, the same way a real player
-	-- has to until the autoFire control exists.
+	-- is effectively the bot's own hand re-arming them. A real player's control for
+	-- this now exists (§21's autoFire toggle) but the bot doesn't use it -- out of
+	-- scope there, same as its other per-weapon-by-name gaps.
 	local freshView = self:_freshView(view)
 	for _, command in ipairs(Kit.chooseTargets(config, freshView, Kit.pendingWeaponsFrom(config, commands))) do
 		table.insert(commands, command)

@@ -26,6 +26,7 @@ local GLYPHS = {
 	scout = "\u{25C9}",
 }
 local TARGET_COLOR = Color3.fromRGB(220, 40, 40)
+local AUTO_FIRE_COLOR = Color3.fromRGB(255, 210, 60)
 
 local function structureCenter(config, x, y, size)
 	local s = config.STUDS_PER_CELL
@@ -61,6 +62,29 @@ local function addGlyph(parent, text)
 	label.Parent = billboard
 end
 
+-- A small gold dot offset from the type glyph, live weapons only (§21) --
+-- autoFire = true is the state worth calling out at a glance, since autoFire =
+-- false (manual re-arm after every shot) is already every weapon's default
+-- look. Under construction stays distinguished purely by the existing
+-- transparency, not this marker, regardless of the flag's value underneath.
+local function addAutoFireMarker(parent)
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size = UDim2.new(0, 14, 0, 14)
+	billboard.StudsOffset = Vector3.new(0.9, 1.6, 0)
+	billboard.AlwaysOnTop = true
+	billboard.Parent = parent
+
+	local dot = Instance.new("Frame")
+	dot.Size = UDim2.new(1, 0, 1, 0)
+	dot.BackgroundColor3 = AUTO_FIRE_COLOR
+	dot.BorderSizePixel = 0
+	dot.Parent = billboard
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(1, 0)
+	corner.Parent = dot
+end
+
 function StructureView.render(parent, controller)
 	parent:ClearAllChildren()
 
@@ -82,6 +106,9 @@ function StructureView.render(parent, controller)
 			parent
 		)
 		addGlyph(part, GLYPHS[structure.typeId] or "?")
+		if structure.autoFire and not structure.underConstruction then
+			addAutoFireMarker(part)
+		end
 	end
 
 	-- Read straight off each weapon's own `.target` (own structures are always

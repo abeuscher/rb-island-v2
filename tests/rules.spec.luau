@@ -256,15 +256,8 @@ t.test("a full scripted match with autoFire on: target once, let it fire on its 
 
 	local afterPlace = Rules.applyCommand(cfg, state, "A", { type = "place", typeId = "cannon", x = 17, y = 10 })
 	local afterTarget = Rules.applyCommand(cfg, afterPlace, "A", { type = "target", x = 17, y = 10, targetX = 24, targetY = 10 })
-
-	-- autoFire isn't exposed to a real player yet (§ Weapon inspection and control
-	-- panel), so it's set directly here to exercise the "keeps firing on its own"
-	-- path this test is actually about.
-	local cannon = table.clone(afterTarget.players.A.structures[2])
-	cannon.autoFire = true
-	local structures = table.clone(afterTarget.players.A.structures)
-	structures[2] = cannon
-	local withAutoFire = State.withPlayer(afterTarget, "A", { structures = structures })
+	local withAutoFire = Rules.applyCommand(cfg, afterTarget, "A", { type = "autoFire", x = 17, y = 10, enabled = true })
+	t.expectTrue(withAutoFire.players.A.structures[2].autoFire)
 
 	-- base hp 40 / cannon damage 10 = 4 hits: 1 tick to complete construction, then
 	-- 4 more ticks firing once per (one-tick) cooldown.

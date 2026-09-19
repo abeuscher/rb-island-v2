@@ -23,6 +23,7 @@ local BuildPalette = require(script.BuildPalette)
 local RoundClock = require(script.RoundClock)
 local StructureView = require(script.StructureView)
 local Cursor = require(script.Cursor)
+local WeaponInfoCard = require(script.WeaponInfoCard)
 
 local PlanUI = {}
 
@@ -76,6 +77,7 @@ function PlanUI.mount(owner, mode, remotes)
 
 	local palette = BuildPalette.mount(screenGui, controller)
 	local clock = RoundClock.mount(screenGui, controller)
+	local infoCard = WeaponInfoCard.mount(screenGui, controller)
 
 	local lastBoard = nil
 
@@ -114,15 +116,32 @@ function PlanUI.mount(owner, mode, remotes)
 		renderBoard()
 		palette.refresh()
 		clock.refresh()
+		infoCard.refresh()
 	end)
 
 	controller:onTick(function()
 		clock.refresh()
+		infoCard.refresh()
 	end)
 
 	local inputConnection = Input.onBoardClick(boardFolder, function(x, y)
 		controller:handleBoardClick(x, y)
 	end)
+
+	-- Right-click selects a weapon for the info card (§21), independent of
+	-- whatever build/target/terrain tool is currently armed on left-click --
+	-- left-click was tried first and dropped: a tool stays armed after use
+	-- (so repeat placement doesn't need re-arming), so it's essentially never
+	-- "none" once a match is underway, and selection almost never fired.
+	local selectConnection = Input.onBoardClick(boardFolder, function(x, y)
+		if controller.phase == "live" then
+			controller:selectWeaponAt(x, y)
+			-- Selection never sends a command and so never triggers onChange on
+			-- its own -- refresh the card immediately rather than leaving it to
+			-- wait for the next unrelated state push.
+			infoCard.refresh()
+		end
+	end, Enum.UserInputType.MouseButton2)
 
 	local cursorHandle = Cursor.mount(cursorFolder, boardFolder, controller, Input)
 	Render.mount(effectsFolder, enemyFolder, controller)
@@ -130,6 +149,7 @@ function PlanUI.mount(owner, mode, remotes)
 	local function teardown()
 		controller:stopClock()
 		inputConnection:Disconnect()
+		selectConnection:Disconnect()
 		cursorHandle.stop()
 		cameraHandle.stop()
 		screenGui:Destroy()

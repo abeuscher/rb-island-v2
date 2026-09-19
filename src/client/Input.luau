@@ -31,11 +31,12 @@ function Input.getBoardCellUnderMouse(boardFolder)
 	return x, y
 end
 
--- Fires `callback(x, y)` on every left-click that lands on `boardFolder`.
--- Returns a connection to disconnect.
-function Input.onBoardClick(boardFolder, callback)
+-- Fires `callback(x, y)` on every click of `mouseButtonType` (left, by
+-- default) that lands on `boardFolder`. Returns a connection to disconnect.
+function Input.onBoardClick(boardFolder, callback, mouseButtonType)
+	mouseButtonType = mouseButtonType or Enum.UserInputType.MouseButton1
 	return UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed or input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+		if gameProcessed or input.UserInputType ~= mouseButtonType then
 			return
 		end
 		local x, y = Input.getBoardCellUnderMouse(boardFolder)

@@ -195,6 +195,8 @@ function MatchService:_handleLiveCommand(owner, command)
 		self:_applyAndPush(owner, command, "reclaimed land")
 	elseif command.type == "place" then
 		self:_applyAndPush(owner, command, "placed " .. tostring(command.typeId))
+	elseif command.type == "autoFire" then
+		self:_applyAndPush(owner, command, command.enabled and "auto-fire enabled" or "auto-fire disabled")
 	end
 end
 

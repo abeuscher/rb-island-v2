@@ -30,6 +30,7 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Board = require(ReplicatedStorage.Shared.board)
+local Structures = require(ReplicatedStorage.Shared.structures)
 local State = require(ReplicatedStorage.Shared.state)
 local Rules = require(ReplicatedStorage.Shared.rules)
 local Flight = require(ReplicatedStorage.Shared.flight)
@@ -102,6 +103,7 @@ function PracticeController.new(config, owner)
 	self.tool = "none"
 	self.armedWeaponKey = nil
 	self.armedWeapon = nil
+	self.selectedWeaponKey = nil
 	self.listeners = {}
 	self.tickListeners = {}
 	self.resolveListeners = {}
@@ -154,12 +156,43 @@ function PracticeController:setTool(tool)
 	self.tool = tool
 	self.armedWeaponKey = nil
 	self.armedWeapon = nil
+	self.selectedWeaponKey = nil
 end
 
+-- See PlanController.luau's own armTarget -- arming from BuildPalette's list
+-- also selects the weapon for the info card, notifying through the same
+-- onChange chain PracticeController's other actions already use.
 function PracticeController:armTarget(weapon)
 	self.tool = "target"
 	self.armedWeaponKey = weapon.key
 	self.armedWeapon = weapon
+	self.selectedWeaponKey = weapon.key
+	self:_notify(nil, nil)
+end
+
+-- See PlanController.luau's own selectWeaponAt/getSelectedWeapon -- same
+-- right-click interaction, same live-read-off-state contract, mirrored here
+-- since both controllers drive the same UI code unmodified.
+function PracticeController:selectWeaponAt(x, y)
+	local structure = Structures.at(self.config.STRUCTURES, self.state.self.structures, x, y)
+	if structure and self.config.STRUCTURES[structure.typeId].fire_mode then
+		self.selectedWeaponKey = cellKey(structure.x, structure.y)
+	else
+		self.selectedWeaponKey = nil
+	end
+end
+
+function PracticeController:getSelectedWeapon()
+	if not self.selectedWeaponKey then
+		return nil
+	end
+	for _, weapon in ipairs(self:getWeapons()) do
+		if weapon.key == self.selectedWeaponKey then
+			return weapon
+		end
+	end
+	self.selectedWeaponKey = nil
+	return nil
 end
 
 -- The player's own weapons, still under construction or not -- a target can be
@@ -171,6 +204,7 @@ end
 -- displayed target can never drift from what the weapon is actually firing at.
 function PracticeController:getWeapons()
 	local weapons = {}
+	local resources = self.state.self.resources
 	for _, structure in ipairs(self.state.self.structures) do
 		local def = self.config.STRUCTURES[structure.typeId]
 		if def.fire_mode then
@@ -182,6 +216,10 @@ function PracticeController:getWeapons()
 				target = structure.target,
 				nextFireAt = structure.nextFireAt,
 				underConstruction = structure.underConstruction,
+				autoFire = structure.autoFire,
+				-- See PlanController.luau's own getWeapons() -- same "off cooldown
+				-- but can't currently afford it" surfacing.
+				powered = resources.energy >= def.energy_cost,
 			})
 		end
 	end
@@ -287,6 +325,15 @@ function PracticeController:handleBoardClick(x, y)
 		self:_dispatch({ type = "place", typeId = typeId, x = x, y = y }, "placed " .. typeId)
 		return
 	end
+end
+
+-- Same command shape as PlanController's setAutoFire, dispatched locally
+-- instead of over the network like every other command here.
+function PracticeController:setAutoFire(weapon, enabled)
+	self:_dispatch(
+		{ type = "autoFire", x = weapon.x, y = weapon.y, enabled = enabled },
+		enabled and "auto-fire enabled" or "auto-fire disabled"
+	)
 end
 
 function PracticeController:getSecondsRemaining()

@@ -119,6 +119,24 @@ t.test("setTarget assigns a persistent target to a weapon and rejects a cell wit
 	t.expectEqual(err2, "no weapon there")
 end)
 
+t.test("setAutoFire flips a weapon's autoFire flag and rejects a cell with no weapon", function()
+	local state = State.new(config)
+	local afterPlace = State.placeStructure(config, state, "A", "cannon", 6, 7)
+	t.expectFalse(afterPlace.players.A.structures[1].autoFire)
+
+	local enabled, ok = State.setAutoFire(config, afterPlace, "A", 6, 7, true)
+	t.expectTrue(ok)
+	t.expectTrue(enabled.players.A.structures[1].autoFire)
+
+	local disabled, ok2 = State.setAutoFire(config, enabled, "A", 6, 7, false)
+	t.expectTrue(ok2)
+	t.expectFalse(disabled.players.A.structures[1].autoFire)
+
+	local _, ok3, err3 = State.setAutoFire(config, afterPlace, "A", 1, 1, true)
+	t.expectFalse(ok3)
+	t.expectEqual(err3, "no weapon there")
+end)
+
 t.test("completeConstruction only completes a structure once its readyAt has passed", function()
 	local state = State.new(config)
 	local afterPlace = State.placeStructure(config, state, "A", "generator", 6, 7)

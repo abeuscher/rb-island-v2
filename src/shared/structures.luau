@@ -144,6 +144,28 @@ function Structures.setTarget(config, list, x, y, targetX, targetY)
 	return newList, true, nil
 end
 
+-- Flips a weapon's autoFire flag (§21's enable/disable control): true keeps it
+-- firing on its own target every cooldown instead of clearing the target after
+-- a single shot (rules.luau's applyCooldowns).
+function Structures.setAutoFire(config, list, x, y, autoFire)
+	local target = Structures.at(config.STRUCTURES, list, x, y)
+	if not target or not config.STRUCTURES[target.typeId].fire_mode then
+		return list, false, "no weapon there"
+	end
+
+	local newList = {}
+	for _, structure in ipairs(list) do
+		if structure == target then
+			local updated = table.clone(structure)
+			updated.autoFire = autoFire
+			table.insert(newList, updated)
+		else
+			table.insert(newList, structure)
+		end
+	end
+	return newList, true, nil
+end
+
 -- Applies damage to whatever structure occupies (x, y), regardless of footprint size
 -- or construction state -- half-built structures are still standing targets.
 -- Returns (list, hit, destroyed, destroyedStructure); destroyedStructure is the

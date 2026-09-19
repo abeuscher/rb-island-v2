@@ -357,7 +357,7 @@ for it.
 
 ### Weapon inspection and control panel
 
-- **Status:** open, scope pending design
+- **Status:** done (Session 021)
 - **Prerequisites:** Client real-time UI
 - **Success criterion:** Selecting a placed weapon on the battlefield surfaces an info card
   (bottom-right of the screen) showing its live stats — range, damage, cooldown, current
@@ -380,6 +380,40 @@ for it.
   cooldown, the practice-mode dummy's own setting since nothing else re-arms it). This entry's
   remaining scope is purely the UI — the info card and a control wired to the existing flag —
   not the flag itself.
+- **Outcome:** Design settled at the Open Gate: selection has no persistent mode, and the
+  disabled-weapon visual question resolved to marking the opt-in state (`autoFire = true`)
+  rather than the default. `Structures.setAutoFire`/`State.setAutoFire`/a new `autoFire`
+  `Rules.applyCommand` case mirror `target`'s existing shape end to end (both controllers,
+  `MatchService`). A new `WeaponInfoCard.luau` (bottom-right, plain `UIListLayout` column so
+  upgrade controls can be appended later) shows range/damage/cooldown/target plus the toggle;
+  `StructureView.luau` adds a small gold marker on any own weapon with `autoFire = true`.
+  Live user testing drove two real revisions beyond the original design: the info card was
+  unreachable at first — selection only fired on a plain left-click while no tool was armed,
+  but a tool stays armed after use (so repeat placement doesn't need re-arming), so it was
+  essentially never "none" once a match was underway. Moved to right-click instead (entirely
+  unused elsewhere — camera is WASD/wheel/Tab only), independent of whatever tool is armed on
+  left-click; arming a weapon's target from BuildPalette's list now also selects it for the
+  card, at the user's request, notifying through the existing `onChange` chain rather than
+  threading a direct `WeaponInfoCard` reference into `BuildPalette`. A weapon's status
+  (BuildPalette's list and the card) now also distinguishes "not powered" (off cooldown but
+  can't currently afford its Energy cost) from a plain "ready," added after the finding below
+  made an idle-looking weapon confusing. `lune run test`: 107/107 (106 + 1 new spec covering
+  `setAutoFire`). `rojo build` clean. User-confirmed live in Studio across each iteration
+  (right-click selection, BuildPalette arm-also-selects); the newest "not powered" status
+  display itself hasn't had an explicit live confirmation pass yet.
+- **Finding (Session 021):** live testing surfaced a real, pre-existing rules-core issue,
+  distinct from anything this entry built: `planShots` (`rules.luau`) pays out the shared
+  Energy pool to whichever weapon it checks first each tick — always whichever was built
+  first, usually the cheap cannon — so a costlier weapon (mortar) can sit off-cooldown,
+  targeted, and starved indefinitely once a cheaper weapon is also drawing continuously.
+  Measured directly: a mortar alone on one generator gets 4 shots in 60s; add a cannon on
+  auto-fire too (same generator) and the mortar drops to 1 while the cannon gets 9. This is
+  the same effect Session 019/020 documented and worked around for the sim's bot strategies
+  (`sim/loadout.luau`'s hold-fire logic, `Kit.chooseTargets`'s `holdFire` parameter in
+  `src/shared/archetypeKit.luau`) but never applied to real players' or the real bot's weapons
+  firing through `planShots` directly. Not fixed here — it's a rules-core Energy-allocation
+  change affecting every weapon, not an info-card scope item; the user asked for it to be
+  logged for a follow-up rather than fixed inline. See the "Notes" section below.
 
 ### New weapon types: missiles and scout drones
 
@@ -681,3 +715,15 @@ Free-form project notes.
   exposed as a real per-type config knob rather than base's one-off hardcoded
   `NUM_BASES`/ready-gate special case). Not needed by anything built so far; no plan entry
   yet. Revisit if/when a specific weapon or structure actually needs a cap.
+- **Shared Energy pool favors whichever weapon fires cheapest first (raised Session 021):**
+  `planShots` (`rules.luau`) allocates the shared Energy pool to weapons in build order each
+  tick, so a cheap weapon (cannon, 1 Energy) reliably starves a costlier one (mortar, 3
+  Energy) once both are drawing continuously — confirmed directly: mortar alone gets 4 shots
+  in 60s off one generator, mortar alongside an auto-firing cannon on the same generator gets
+  1. Real for any simultaneous multi-weapon economy, not just auto-fire, though auto-fire
+  (Session 021) makes it far more visible since weapons now draw continuously instead of only
+  when manually re-targeted. The sim already has a mitigation pattern to borrow from
+  (`sim/loadout.luau`'s hold-fire logic, `Kit.chooseTargets`'s `holdFire` parameter in
+  `src/shared/archetypeKit.luau`) but nothing wires it into `planShots` itself for real
+  players or `server/Bot.luau`. No plan entry yet — revisit as a balance/rules-core session
+  (e.g. round-robin or priority-based Energy allocation across weapons sharing a tick).

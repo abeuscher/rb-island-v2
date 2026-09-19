@@ -202,6 +202,17 @@ function State.setTarget(config, state, owner, x, y, targetX, targetY)
 	return withPlayer(state, owner, { structures = newStructures }), true, nil
 end
 
+-- Flips a weapon's autoFire flag -- applied immediately and permanently, like
+-- every other command.
+function State.setAutoFire(config, state, owner, x, y, autoFire)
+	local player = state.players[owner]
+	local newStructures, ok, err = Structures.setAutoFire(config, player.structures, x, y, autoFire)
+	if not ok then
+		return state, false, err
+	end
+	return withPlayer(state, owner, { structures = newStructures }), true, nil
+end
+
 -- Per-tick steps shared by both players; tick sequencing (§4, restated in time
 -- terms) is rules.luau's concern, but the per-step transforms live here since
 -- they're pure state operations.

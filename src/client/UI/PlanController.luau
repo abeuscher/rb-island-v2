@@ -20,6 +20,7 @@
 
 local Board = require(game:GetService("ReplicatedStorage").Shared.board)
 local Flight = require(game:GetService("ReplicatedStorage").Shared.flight)
+local Structures = require(game:GetService("ReplicatedStorage").Shared.structures)
 
 local PlanController = {}
 PlanController.__index = PlanController
@@ -44,6 +45,7 @@ function PlanController.new(config, owner, remotes)
 	self.tool = "none"
 	self.armedWeaponKey = nil
 	self.armedWeapon = nil
+	self.selectedWeaponKey = nil
 	self.listeners = {}
 	self.tickListeners = {}
 	self.resolveListeners = {}
@@ -106,12 +108,51 @@ function PlanController:setTool(tool)
 	self.tool = tool
 	self.armedWeaponKey = nil
 	self.armedWeapon = nil
+	self.selectedWeaponKey = nil
 end
 
+-- Arming a weapon's target from BuildPalette's list also selects it for the
+-- info card (§21 follow-up) -- the same selectedWeaponKey right-click drives,
+-- so both entry points show the same card. _notify(nil, nil) piggybacks on
+-- the existing onChange refresh chain (UI/init.luau) rather than threading a
+-- direct WeaponInfoCard reference into BuildPalette for this.
 function PlanController:armTarget(weapon)
 	self.tool = "target"
 	self.armedWeaponKey = weapon.key
 	self.armedWeapon = weapon
+	self.selectedWeaponKey = weapon.key
+	self:_notify(nil, nil)
+end
+
+-- Selects (or, right-clicking anywhere else, deselects) a placed weapon on
+-- the battlefield for the info card (§21) -- driven by UI/init.luau's
+-- right-click handler, independent of whatever tool is armed on left-click
+-- above (a tool stays armed after use, so it's essentially never "none" once
+-- a match is underway -- confirmed live, see the session log).
+function PlanController:selectWeaponAt(x, y)
+	local structure = Structures.at(self.config.STRUCTURES, self.state.self.structures, x, y)
+	if structure and self.config.STRUCTURES[structure.typeId].fire_mode then
+		self.selectedWeaponKey = cellKey(structure.x, structure.y)
+	else
+		self.selectedWeaponKey = nil
+	end
+end
+
+-- The currently selected weapon, in the same shape getWeapons() returns, read
+-- live off the current state so the card can never show a stale target/
+-- cooldown/autoFire value -- clears itself if the weapon is gone (bulldozed,
+-- destroyed).
+function PlanController:getSelectedWeapon()
+	if not self.selectedWeaponKey then
+		return nil
+	end
+	for _, weapon in ipairs(self:getWeapons()) do
+		if weapon.key == self.selectedWeaponKey then
+			return weapon
+		end
+	end
+	self.selectedWeaponKey = nil
+	return nil
 end
 
 -- The player's own weapons, still under construction or not -- a target can be
@@ -123,6 +164,7 @@ end
 -- displayed target can never drift from what the weapon is actually firing at.
 function PlanController:getWeapons()
 	local weapons = {}
+	local resources = self.state.self.resources
 	for _, structure in ipairs(self.state.self.structures) do
 		local def = self.config.STRUCTURES[structure.typeId]
 		if def.fire_mode then
@@ -134,6 +176,14 @@ function PlanController:getWeapons()
 				target = structure.target,
 				nextFireAt = structure.nextFireAt,
 				underConstruction = structure.underConstruction,
+				autoFire = structure.autoFire,
+				-- Off cooldown doesn't mean it'll actually fire -- planShots
+				-- (rules.luau) also needs the Energy on hand, and the shared pool
+				-- pays out to whichever weapon it checks first each tick, so a
+				-- costlier weapon can sit off-cooldown starved for a while. Surfaced
+				-- to the player as "not powered" rather than a plain "ready" that
+				-- doesn't explain why nothing's happening.
+				powered = resources.energy >= def.energy_cost,
 			})
 		end
 	end
@@ -231,6 +281,13 @@ function PlanController:stopClock()
 		self._stateConn:Disconnect()
 		self._stateConn = nil
 	end
+end
+
+-- The info card's auto-fire toggle (§21) -- same command shape as target, just
+-- flipping the flag applyCooldowns (rules.luau) reads to decide whether a
+-- fired weapon clears its own target or keeps it.
+function PlanController:setAutoFire(weapon, enabled)
+	self.remotes.Command:FireServer({ type = "autoFire", x = weapon.x, y = weapon.y, enabled = enabled })
 end
 
 -- Ready only ever matters during setup now -- ending a "round" early isn't a
