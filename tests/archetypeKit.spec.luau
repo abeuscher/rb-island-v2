@@ -108,3 +108,46 @@ t.test("pendingWeaponsFrom only pulls weapon-type structures out of this round's
 	t.expectEqual(#weapons, 1)
 	t.expectEqual(weapons[1].typeId, "cannon")
 end)
+
+t.test("chooseTargets skips a weapon named in holdFire entirely", function()
+	local view = makeView(1, "A", {
+		{ typeId = "cannon", x = 17, y = 10, hp = config.STRUCTURES.cannon.hp, underConstruction = false },
+	}, {})
+	local commands = Kit.chooseTargets(config, view, nil, nil, { cannon = true })
+	t.expectEqual(#commands, 0)
+end)
+
+t.test("energySustainTarget derives generator count from a weapon's real energy_cost/cooldown draw", function()
+	-- cannon: 1 energy / 5s cooldown = 0.2/s; at 0.1/s per generator, one
+	-- cannon needs 2 generators to sustain continuous fire.
+	local derivedConfig = table.clone(config)
+	derivedConfig.ENERGY_PER_GENERATOR_PER_SECOND = 0.1
+	t.expectEqual(Kit.energySustainTarget(derivedConfig, { cannon = 1 }), 2)
+end)
+
+t.test("energySustainTarget sums draw across multiple weapon types", function()
+	local derivedConfig = table.clone(config)
+	derivedConfig.ENERGY_PER_GENERATOR_PER_SECOND = 0.1
+	-- 2 cannons (0.4/s total) + 1 mortar (0.6/s) = 1.0/s -> 10 generators.
+	t.expectEqual(Kit.energySustainTarget(derivedConfig, { cannon = 2, mortar = 1 }), 10)
+end)
+
+t.test("pickNonOverlapping skips a candidate whose footprint collides with one already chosen", function()
+	-- base footprint is 2x2: (6,7) and (7,7) collide.
+	local candidates = { { x = 6, y = 7 }, { x = 7, y = 7 }, { x = 20, y = 7 } }
+	local chosen = Kit.pickNonOverlapping(config, "base", candidates, 2)
+	t.expectEqual(#chosen, 2)
+	t.expectEqual(chosen[1].x, 6)
+	t.expectEqual(chosen[2].x, 20)
+end)
+
+t.test("chooseBaseSpots uses config.curatedBaseLayout when set, instead of Kit.spreadPick", function()
+	local view = makeView(0, "A", {}, {})
+	local curatedConfig = table.clone(config)
+	curatedConfig.curatedBaseLayout = function(cfg, v, reserved)
+		return { { x = 5, y = 5 } }
+	end
+	local spots = Kit.chooseBaseSpots(curatedConfig, view, {})
+	t.expectEqual(#spots, 1)
+	t.expectEqual(spots[1].x, 5)
+end)

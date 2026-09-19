@@ -144,4 +144,39 @@ function Report.summaryText(config, results)
 	return table.concat(lines, "\n")
 end
 
+-- A plain-text report of sim/placementSuite.luau's per-layout breakdown:
+-- victory conditions, average time-to-first-base, and any archetype that
+-- never found a base at all under that layout (a real blind spot, named so
+-- it gets fixed rather than just noted).
+function Report.placementSuiteText(suiteReport)
+	local lines = {}
+	local function say(line)
+		table.insert(lines, line)
+	end
+
+	for _, layoutName in ipairs(sortedKeys(suiteReport)) do
+		local layout = suiteReport[layoutName]
+		say(string.format("%s:", layoutName))
+		say(string.format("  average time to first base found: %s", formatPercent(layout.averageFirstBaseFraction)))
+		for _, condition in ipairs(sortedKeys(layout.conditions)) do
+			say(string.format("  %-18s %s", condition, formatPercent(layout.conditions[condition])))
+		end
+
+		local anyBlindSpot = false
+		for _, name in ipairs(sortedKeys(layout.blindSpots)) do
+			local counts = layout.blindSpots[name]
+			if counts.neverFound > 0 then
+				anyBlindSpot = true
+				say(string.format("  BLIND SPOT: %s never found a base in %d/%d matches", name, counts.neverFound, counts.total))
+			end
+		end
+		if not anyBlindSpot then
+			say("  no blind spots -- every archetype found a base at least once")
+		end
+		say("")
+	end
+
+	return table.concat(lines, "\n")
+end
+
 return Report

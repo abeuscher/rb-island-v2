@@ -5,10 +5,10 @@
 local Board = require("../../src/shared/board")
 local Economy = require("../../src/shared/economy")
 local Kit = require("../../src/shared/archetypeKit")
+local Loadout = require("../loadout")
 
 local Defilade = {}
 
-local GENERATOR_TARGET = 2
 local CANNON_TARGET = 2
 
 -- The cell(s) just beyond a base's channel-facing edge -- a ridge here sits
@@ -24,10 +24,25 @@ local function shieldCells(config, view, base)
 	return cells
 end
 
+-- A few cells behind the front, not the absolute back of the island: picking
+-- the single backmost candidate (the old behaviour) could put a cannon
+-- farther from the channel than config.STRUCTURES.cannon.range reaches at
+-- all, once the island is deep enough -- the exact bug this doctrine has
+-- always had, only caught once sim/ gained real test coverage (Session 020).
+-- Depth is derived from the cannon's own range so a future range or
+-- board-size change can't silently reintroduce it.
+local function shieldedCannonSpot(config, view, reserved)
+	local lowGround = Kit.frontlineCells(config, view, "cannon", reserved)
+	local maxSafeDepth = config.STRUCTURES.cannon.range - config.CHANNEL_WIDTH - 1
+	local index = math.max(1, math.min(#lowGround, math.floor(maxSafeDepth / 2) + 1))
+	return lowGround[index]
+end
+
 function Defilade.decide(config, view)
 	local commands = {}
 	local resources = view.self.resources
 	local reserved = {}
+	local GENERATOR_TARGET = Kit.energySustainTarget(config, { cannon = CANNON_TARGET })
 
 	local function trySpend(cost)
 		if Economy.canAfford(resources, cost) then
@@ -38,7 +53,7 @@ function Defilade.decide(config, view)
 	end
 
 	if view.elapsed == 0 then
-		local baseSpots = Kit.spreadPick(Kit.candidateCells(config, view, "base", reserved), config.NUM_BASES)
+		local baseSpots = Kit.chooseBaseSpots(config, view, reserved)
 		for _, spot in ipairs(baseSpots) do
 			table.insert(commands, { type = "place", typeId = "base", x = spot.x, y = spot.y })
 			Kit.reserve(reserved, config, "base", spot.x, spot.y)
@@ -76,9 +91,7 @@ function Defilade.decide(config, view)
 		end
 
 		if not raised and Kit.countType(view, "cannon") < CANNON_TARGET then
-			-- Backmost open cell: low ground, tucked behind the ridge.
-			local lowGround = Kit.frontlineCells(config, view, "cannon", reserved)
-			local spot = lowGround[#lowGround]
+			local spot = shieldedCannonSpot(config, view, reserved)
 			if spot and trySpend({ supply = config.STRUCTURES.cannon.supply_cost }) then
 				table.insert(commands, { type = "place", typeId = "cannon", x = spot.x, y = spot.y })
 				Kit.reserve(reserved, config, "cannon", spot.x, spot.y)
@@ -86,7 +99,9 @@ function Defilade.decide(config, view)
 		end
 	end
 
-	for _, command in ipairs(Kit.chooseTargets(config, view, Kit.pendingWeaponsFrom(config, commands))) do
+	local pendingWeapons = Kit.pendingWeaponsFrom(config, commands)
+	local holdFire = Loadout.holdFireSet(config, view, pendingWeapons)
+	for _, command in ipairs(Kit.chooseTargets(config, view, pendingWeapons, nil, holdFire)) do
 		table.insert(commands, command)
 	end
 

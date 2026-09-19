@@ -5,8 +5,8 @@
 -- archetype could use to peek at true opponent structure state. Originally
 -- sim-only; promoted here in Session 009 so server/Bot.luau's real match
 -- opponent can build on the exact same candidate-cell/target-selection logic
--- the sim's five scripted archetypes already use, instead of a second copy
--- (same reasoning as view.luau's Session 008 promotion).
+-- the sim's scripted archetypes already use, instead of a second copy (same
+-- reasoning as view.luau's Session 008 promotion).
 
 local Board = require("./board")
 local Structures = require("./structures")
@@ -97,6 +97,34 @@ function Kit.frontlineCells(config, view, typeId, reserved)
 	return candidates
 end
 
+-- The first `count` candidates, in the caller's own order, whose `typeId`
+-- footprints don't collide with each other -- unlike Kit.spreadPick's
+-- farthest-point spread, this preserves the caller's ordering (e.g. nearest
+-- a target cell first) so a curated layout can pack picks together on
+-- purpose instead of maximizing their distance apart.
+function Kit.pickNonOverlapping(config, typeId, candidates, count)
+	local chosen, usedKeys = {}, {}
+	for _, c in ipairs(candidates) do
+		if #chosen >= count then
+			break
+		end
+		local collides = false
+		for _, k in ipairs(footprintKeys(config, typeId, c.x, c.y)) do
+			if usedKeys[k] then
+				collides = true
+				break
+			end
+		end
+		if not collides then
+			table.insert(chosen, c)
+			for _, k in ipairs(footprintKeys(config, typeId, c.x, c.y)) do
+				usedKeys[k] = true
+			end
+		end
+	end
+	return chosen
+end
+
 -- Greedy farthest-point sampling: each pick after the first maximizes its
 -- Manhattan distance to every pick already made, so a handful of picks land
 -- spread across the candidates rather than clustered together.
@@ -123,6 +151,32 @@ function Kit.spreadPick(candidates, count)
 		used[key(best.x, best.y)] = true
 	end
 	return chosen
+end
+
+-- Every archetype's opening base placement: Kit.spreadPick's randomized
+-- spread by default, or config.curatedBaseLayout(config, view, reserved) when
+-- set (sim/placementSuite.luau's own adversarial-layout pass) -- so a curated
+-- layout needs no per-archetype special-casing.
+function Kit.chooseBaseSpots(config, view, reserved)
+	if config.curatedBaseLayout then
+		return config.curatedBaseLayout(config, view, reserved)
+	end
+	return Kit.spreadPick(Kit.candidateCells(config, view, "base", reserved), config.NUM_BASES)
+end
+
+-- Generators needed to sustain continuous fire from `counts` (a
+-- typeId -> count table) against config.ENERGY_PER_GENERATOR_PER_SECOND,
+-- rounded up -- each weapon's own draw is its energy_cost spent every
+-- cooldown_seconds, both already on config.STRUCTURES. Lets an archetype
+-- size its generator target off the weapons it actually plans to build
+-- instead of a hand-picked literal.
+function Kit.energySustainTarget(config, counts)
+	local totalDraw = 0
+	for typeId, count in pairs(counts) do
+		local def = config.STRUCTURES[typeId]
+		totalDraw += (def.energy_cost / def.cooldown_seconds) * count
+	end
+	return math.max(1, math.ceil(totalDraw / config.ENERGY_PER_GENERATOR_PER_SECOND))
 end
 
 -- Every land cell in the opponent's territory -- terrain is public (§11).
@@ -215,7 +269,10 @@ end
 -- `focusBases`, if given, replaces the base list every weapon picks from --
 -- lets a caller commit every weapon to the same single base instead of each
 -- one independently randomizing among everything currently plotted.
-function Kit.chooseTargets(config, view, pendingWeapons, focusBases)
+-- `holdFire`, if given, is a typeId -> true set of weapons to skip entirely
+-- (see sim/loadout.luau's declared Energy-priority stand-down, generalized
+-- from recon.luau's old inline cannon-vs-mortar check).
+function Kit.chooseTargets(config, view, pendingWeapons, focusBases, holdFire)
 	local commands = {}
 	local plottedBases, plottedGenerators = {}, {}
 	for _, s in ipairs(Kit.plottedEnemyStructures(view)) do
@@ -250,7 +307,7 @@ function Kit.chooseTargets(config, view, pendingWeapons, focusBases)
 
 	for _, weapon in ipairs(weapons) do
 		local def = config.STRUCTURES[weapon.typeId]
-		if def.fire_mode then
+		if def.fire_mode and not (holdFire and holdFire[weapon.typeId]) then
 			local target = nil
 
 			local hitBases = reachable(def, weapon.x, weapon.y, plottedBases)

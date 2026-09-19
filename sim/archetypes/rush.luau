@@ -7,11 +7,11 @@
 
 local Economy = require("../../src/shared/economy")
 local Kit = require("../../src/shared/archetypeKit")
+local Loadout = require("../loadout")
 
 local Rush = {}
 
 local CANNON_TARGET = 2
-local GENERATOR_TARGET = 2
 local MORTAR_TARGET = 2
 
 -- The lowest-coordinate live (non-rubble) plotted base, as a single-element
@@ -35,6 +35,11 @@ function Rush.decide(config, view)
 	local commands = {}
 	local resources = view.self.resources
 	local reserved = {}
+	-- Sized off the cannons this doctrine actually opens with, not the
+	-- mortars it only pivots to once they unlock -- keeping "just enough
+	-- generator to sustain fire" a lean, fast-opening number rather than what
+	-- a full cannon+mortar loadout would need.
+	local GENERATOR_TARGET = Kit.energySustainTarget(config, { cannon = CANNON_TARGET })
 
 	local function trySpend(cost)
 		if Economy.canAfford(resources, cost) then
@@ -45,7 +50,7 @@ function Rush.decide(config, view)
 	end
 
 	if view.elapsed == 0 then
-		local baseSpots = Kit.spreadPick(Kit.candidateCells(config, view, "base", reserved), config.NUM_BASES)
+		local baseSpots = Kit.chooseBaseSpots(config, view, reserved)
 		for _, spot in ipairs(baseSpots) do
 			table.insert(commands, { type = "place", typeId = "base", x = spot.x, y = spot.y })
 			Kit.reserve(reserved, config, "base", spot.x, spot.y)
@@ -79,7 +84,9 @@ function Rush.decide(config, view)
 		end
 	end
 
-	for _, command in ipairs(Kit.chooseTargets(config, view, Kit.pendingWeaponsFrom(config, commands), focusBase(view))) do
+	local pendingWeapons = Kit.pendingWeaponsFrom(config, commands)
+	local holdFire = Loadout.holdFireSet(config, view, pendingWeapons)
+	for _, command in ipairs(Kit.chooseTargets(config, view, pendingWeapons, focusBase(view), holdFire)) do
 		table.insert(commands, command)
 	end
 

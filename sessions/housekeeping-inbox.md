@@ -21,7 +21,12 @@ mid-implementation.
 
 ## Inbox
 
-*(Items destined for the next housekeeping session.)*
+- [unknown · 2026-09-19] `src/client/UI/Cursor.luau`'s targeting crosshair has no
+  valid/invalid feedback — the placement footprint preview already highlights green/red per
+  `Structures.canPlace`, but the crosshair (shown while a weapon is armed to target) is just a
+  static white cross regardless of whether the hovered cell is in bounds or a legal shot.
+  Confirmed still true on read (Session 020); not a duplicate of the existing placement
+  preview.
 
 ## Recently dispositioned
 

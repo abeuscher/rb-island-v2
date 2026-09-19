@@ -4,15 +4,22 @@
 
 local Economy = require("../../src/shared/economy")
 local Kit = require("../../src/shared/archetypeKit")
+local Loadout = require("../loadout")
 
 local Boomer = {}
-
-local GENERATOR_TARGET = 4
 
 function Boomer.decide(config, view)
 	local commands = {}
 	local resources = view.self.resources
 	local reserved = {}
+	-- Sized off one mortar sustaining continuous fire, not the full arsenal
+	-- it eventually fields -- GENERATOR_TARGET never grows past this once set
+	-- (there's no later branch that returns to building more), and 2 full
+	-- mortars' worth (8 generators) delayed the weapon phase so long that
+	-- boomer was regularly incapacitated before ever spending on a weapon at
+	-- all, missile included -- caught by `lune run sim`'s purchaseShare
+	-- showing missile never bought across a full round robin (Session 020).
+	local GENERATOR_TARGET = Kit.energySustainTarget(config, { mortar = 1 })
 
 	local function trySpend(cost)
 		if Economy.canAfford(resources, cost) then
@@ -23,7 +30,7 @@ function Boomer.decide(config, view)
 	end
 
 	if view.elapsed == 0 then
-		local baseSpots = Kit.spreadPick(Kit.candidateCells(config, view, "base", reserved), config.NUM_BASES)
+		local baseSpots = Kit.chooseBaseSpots(config, view, reserved)
 		for _, spot in ipairs(baseSpots) do
 			table.insert(commands, { type = "place", typeId = "base", x = spot.x, y = spot.y })
 			Kit.reserve(reserved, config, "base", spot.x, spot.y)
@@ -40,12 +47,20 @@ function Boomer.decide(config, view)
 			end
 		end
 	else
-		-- Prefers mortars, since it has been saving up while it built out its
-		-- economy, but keeps spending on cannons too once mortars stop fitting
-		-- the remaining budget.
-		for _, typeId in ipairs({ "mortar", "cannon" }) do
+		-- Prefers missiles, then mortars, since it has been saving up while it
+		-- built out its economy, but keeps spending on cannons too once the
+		-- pricier weapons stop fitting the remaining budget. Stops trying
+		-- cheaper types entirely once a pricier, already-unlocked one is out
+		-- of reach this cycle, banking Supply toward it instead -- otherwise
+		-- the cheaper type (always affordable first) drains the pool back to
+		-- near-zero every single decide() cycle, and the pricier one's cost
+		-- never gets a chance to accumulate at all. Missile (26 Supply, the
+		-- priciest, latest-unlocking) never once got bought in a full
+		-- `lune run sim` round robin before this fix (Session 020).
+		local savingForPricier = false
+		for _, typeId in ipairs({ "missile", "mortar", "cannon" }) do
 			local def = config.STRUCTURES[typeId]
-			if view.elapsed >= def.unlock_time then
+			if not savingForPricier and view.elapsed >= def.unlock_time then
 				local spots = Kit.candidateCells(config, view, typeId, reserved)
 				while #spots > 0 and Economy.canAfford(resources, { supply = def.supply_cost }) do
 					local spot = spots[math.random(#spots)]
@@ -54,11 +69,16 @@ function Boomer.decide(config, view)
 					Kit.reserve(reserved, config, typeId, spot.x, spot.y)
 					spots = Kit.candidateCells(config, view, typeId, reserved)
 				end
+				if not Economy.canAfford(resources, { supply = def.supply_cost }) then
+					savingForPricier = true
+				end
 			end
 		end
 	end
 
-	for _, command in ipairs(Kit.chooseTargets(config, view, Kit.pendingWeaponsFrom(config, commands))) do
+	local pendingWeapons = Kit.pendingWeaponsFrom(config, commands)
+	local holdFire = Loadout.holdFireSet(config, view, pendingWeapons)
+	for _, command in ipairs(Kit.chooseTargets(config, view, pendingWeapons, nil, holdFire)) do
 		table.insert(commands, command)
 	end
 

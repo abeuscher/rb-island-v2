@@ -6,16 +6,21 @@
 -- recon burst is done (or there's nothing left to explore), it switches to
 -- the same single-base focus-fire finish `rush` uses, now armed with a much
 -- better picture of the board than a shot-by-shot opportunist ever builds.
+-- Also flies a scout drone permanently on recon duty (its whole doctrine is
+-- reconnaissance, the drone's own declared category) -- unlike the cannons'
+-- recon burst, the drone never switches to attacking; a zero-damage weapon
+-- has nothing to contribute there.
 
 local Economy = require("../../src/shared/economy")
 local Flight = require("../../src/shared/flight")
 local Kit = require("../../src/shared/archetypeKit")
+local Loadout = require("../loadout")
 
 local Recon = {}
 
 local CANNON_TARGET = 2
-local GENERATOR_TARGET = 2
 local MORTAR_TARGET = 2
+local SCOUT_TARGET = 1
 local RECON_SHOTS = 8
 
 local function focusBase(view)
@@ -49,7 +54,10 @@ end
 -- chain in the same call instead of going untargeted -- a weapon boxed into a
 -- corner with nothing left to scout still attacks whatever it already knows
 -- about rather than sitting idle for the remainder of the recon window.
-local function chooseReconTargets(config, view, pendingWeapons, reconBudget)
+-- `holdFire` (see sim/loadout.luau) skips a weapon entirely -- this is what
+-- replaces the old inline cannon-vs-mortar stand-down, generalized so every
+-- archetype gets it, not just this one.
+local function chooseReconTargets(config, view, pendingWeapons, reconBudget, holdFire)
 	local commands = {}
 	local focus = focusBase(view)
 	local plottedGenerators = {}
@@ -74,27 +82,19 @@ local function chooseReconTargets(config, view, pendingWeapons, reconBudget)
 		end
 	end
 
-	-- Cannons and mortars draw from the same Energy pool, and planShots
-	-- (rules.luau) pays out to whichever weapon it checks first each tick --
-	-- always the cannons here, since they're built first. A cheap cannon shot
-	-- every cooldown never lets the pool accumulate the mortar's pricier 3
-	-- Energy. Once a base is actually found and a mortar exists to finish it,
-	-- cannons stand down (no target, no fire) so Energy banks up for the
-	-- mortar's harder hit instead of the two competing for the same trickle.
-	local hasMortar = Kit.countType(view, "mortar") > 0
-	for _, weapon in ipairs(pendingWeapons or {}) do
-		if weapon.typeId == "mortar" then
-			hasMortar = true
-		end
-	end
-
 	for _, weapon in ipairs(weapons) do
 		local def = config.STRUCTURES[weapon.typeId]
-		if def.fire_mode then
+		if def.fire_mode and not (holdFire and holdFire[weapon.typeId]) then
 			local target = nil
-			local standDown = weapon.typeId == "cannon" and reconBudget <= 0 and focus and hasMortar
 
-			if not standDown then
+			if weapon.typeId == "scout" then
+				-- Permanently on recon duty: always the farthest unexplored
+				-- cell it can reach, or the farthest known cell once there's
+				-- nothing left to explore -- never the focus base, which a
+				-- zero-damage shot can't do anything to anyway.
+				target = farthest(view.board, def, weapon.x, weapon.y, unexplored)
+					or farthest(view.board, def, weapon.x, weapon.y, opponentLand)
+			else
 				if reconBudget > 0 then
 					target = farthest(view.board, def, weapon.x, weapon.y, unexplored)
 				end
@@ -135,6 +135,7 @@ function Recon.decide(config, view)
 	local commands = {}
 	local resources = view.self.resources
 	local reserved = {}
+	local GENERATOR_TARGET = Kit.energySustainTarget(config, { cannon = CANNON_TARGET, mortar = MORTAR_TARGET, scout = SCOUT_TARGET })
 
 	local function trySpend(cost)
 		if Economy.canAfford(resources, cost) then
@@ -145,7 +146,7 @@ function Recon.decide(config, view)
 	end
 
 	if view.elapsed == 0 then
-		local baseSpots = Kit.spreadPick(Kit.candidateCells(config, view, "base", reserved), config.NUM_BASES)
+		local baseSpots = Kit.chooseBaseSpots(config, view, reserved)
 		for _, spot in ipairs(baseSpots) do
 			table.insert(commands, { type = "place", typeId = "base", x = spot.x, y = spot.y })
 			Kit.reserve(reserved, config, "base", spot.x, spot.y)
@@ -172,6 +173,16 @@ function Recon.decide(config, view)
 				local spot = spots[math.random(#spots)]
 				table.insert(commands, { type = "place", typeId = "generator", x = spot.x, y = spot.y })
 				Kit.reserve(reserved, config, "generator", spot.x, spot.y)
+			end
+		end
+	-- The scout drone before the second cannon: recon's whole identity is
+	-- vision first, so its dedicated recon tool comes online early too.
+	elseif Kit.countType(view, "scout") < SCOUT_TARGET and view.elapsed >= config.STRUCTURES.scout.unlock_time then
+		if trySpend({ supply = config.STRUCTURES.scout.supply_cost }) then
+			local spot = Kit.frontlineCells(config, view, "scout", reserved)[1]
+			if spot then
+				table.insert(commands, { type = "place", typeId = "scout", x = spot.x, y = spot.y })
+				Kit.reserve(reserved, config, "scout", spot.x, spot.y)
 			end
 		end
 	elseif Kit.countType(view, "cannon") < CANNON_TARGET then
@@ -203,7 +214,8 @@ function Recon.decide(config, view)
 
 	local pendingWeapons = Kit.pendingWeaponsFrom(config, commands)
 	local reconBudget = RECON_SHOTS - view.self.shotsFired
-	for _, command in ipairs(chooseReconTargets(config, view, pendingWeapons, reconBudget)) do
+	local holdFire = Loadout.holdFireSet(config, view, pendingWeapons)
+	for _, command in ipairs(chooseReconTargets(config, view, pendingWeapons, reconBudget, holdFire)) do
 		table.insert(commands, command)
 	end
 

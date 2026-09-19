@@ -4,16 +4,17 @@
 local Board = require("../../src/shared/board")
 local Economy = require("../../src/shared/economy")
 local Kit = require("../../src/shared/archetypeKit")
+local Loadout = require("../loadout")
 
 local Highground = {}
 
-local GENERATOR_TARGET = 2
 local CANNON_TARGET = 3
 
 function Highground.decide(config, view)
 	local commands = {}
 	local resources = view.self.resources
 	local reserved = {}
+	local GENERATOR_TARGET = Kit.energySustainTarget(config, { cannon = CANNON_TARGET })
 
 	local function trySpend(cost)
 		if Economy.canAfford(resources, cost) then
@@ -24,7 +25,7 @@ function Highground.decide(config, view)
 	end
 
 	if view.elapsed == 0 then
-		local baseSpots = Kit.spreadPick(Kit.candidateCells(config, view, "base", reserved), config.NUM_BASES)
+		local baseSpots = Kit.chooseBaseSpots(config, view, reserved)
 		for _, spot in ipairs(baseSpots) do
 			table.insert(commands, { type = "place", typeId = "base", x = spot.x, y = spot.y })
 			Kit.reserve(reserved, config, "base", spot.x, spot.y)
@@ -56,7 +57,9 @@ function Highground.decide(config, view)
 		end
 	end
 
-	for _, command in ipairs(Kit.chooseTargets(config, view, Kit.pendingWeaponsFrom(config, commands))) do
+	local pendingWeapons = Kit.pendingWeaponsFrom(config, commands)
+	local holdFire = Loadout.holdFireSet(config, view, pendingWeapons)
+	for _, command in ipairs(Kit.chooseTargets(config, view, pendingWeapons, nil, holdFire)) do
 		table.insert(commands, command)
 	end
 

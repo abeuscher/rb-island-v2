@@ -543,7 +543,7 @@ for it.
 
 ### Sim weapon roles and loadout matrix
 
-- **Status:** open, not started
+- **Status:** done (Session 020)
 - **Prerequisites:** none hard. Everything it builds on is already done — "New weapon types:
   missiles and scout drones" (Session 016), "Sim harness rewrite" (Session 017), "Scout drone
   reveal shape" (Session 018). Nothing about the shipped game is blocked on this; what's blocked
@@ -634,6 +634,40 @@ for it.
   entry; (3) an Energy-sustain figure, preferably derived from `energy_cost`/`cooldown_seconds`
   rather than hand-maintained; (4) a category tag so the loadout generator picks the weapon up
   with no archetype edits at all.
+- **Outcome:** Reconsidered the plan's own starting shape at the Open Gate and simplified it:
+  roles live in a single flat `sim/loadout.luau` table (not one file per weapon type) and stay
+  in `sim/`, not promoted to `src/shared/` — `server/Bot.luau` isn't a real second consumer yet,
+  so promoting was premature; deferred the same way Session 016 deferred scout-on-bot. The 7
+  existing archetypes kept their own terrain/tempo doctrine (that's real strategic personality,
+  not weapon-role logic) rather than being flattened into pure category-slot loadouts; only
+  their weapon build/target block changed. `Kit.chooseTargets` gained a plain `holdFire`
+  typeId-set parameter (no category concept in the shared layer), fed by
+  `Loadout.holdFireSet` — a cheap weapon (cannon) now holds fire once a costlier one
+  (mortar/missile) exists *and* something's actually plotted to shoot at, generalizing
+  `recon.luau`'s deleted inline check to all 7 archetypes (b). `Kit.energySustainTarget`
+  replaced every archetype's hand-picked `GENERATOR_TARGET` with a number derived from
+  `energy_cost`/`cooldown_seconds` (c). Missile and scout went into `boomer` and `recon`
+  respectively — the two archetypes whose existing doctrine already fit each weapon's category
+  — not new files (a); `lune run sim` confirms non-zero purchases and shots fired for both.
+  `sim/placementSuite.luau` added the three curated layouts as a fast pass inside `lune run
+  sim` (d); the first version pinned bases to the absolute edge of territory and found 5 of 7
+  archetypes never finding a base at all, which turned out to be two real bugs rather than
+  balance noise — `defilade` placing its own cannons beyond their own range (the same class of
+  bug §18 already fixed once for a different cause, now fixed by deriving the cannon's depth
+  from `CANNON_RANGE` instead of hardcoding "the backmost cell"), and the curated layouts
+  themselves testing raw range instead of exploration behavior (softened to 60% depth). A third
+  bug, found via `lune run sim`'s purchase-share report rather than the suite: `boomer` never
+  once bought a missile, because its spend loop let mortar (always affordable first) drain
+  Supply to near-zero every cycle before missile's pricier threshold could ever accumulate —
+  fixed by having it bank Supply toward an already-unlocked pricier weapon instead. After both
+  fixes, no archetype shows a 0%-ever-found rate under any curated layout;
+  `tests/sim.spec.luau`'s smoke spec (e) is what would have caught the defilade regression in
+  seconds instead of a multi-minute aggregate run. README's new "Adding a new weapon or
+  structure to the sim" section (f) is the checklist, demonstrated on missile/scout. `lune run
+  test`: 106/106 (89/89 at session start). `lune run sweep` wasn't re-run in full (each pass is
+  ~15,000+ matches and a fresh balance pass wasn't this entry's job) — confirmed instead that
+  its call surface into `sim/archetypes.luau`/`Harness` is unchanged. `server/Bot.luau` untouched,
+  per the Open Gate scoping call.
 
 ---
 
