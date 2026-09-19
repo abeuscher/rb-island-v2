@@ -303,7 +303,7 @@ function Render.mount(effectsFolder, enemyFolder, controller)
 
 			animateShot(config, preState.board, effectsFolder, shot, onProgress, function()
 				if isOwnShot then
-					for _, cell in ipairs(Fog.revealedCells(shot.def, shot.shot)) do
+					for _, cell in ipairs(Fog.revealedCells(shot.def, shot.shot, shot.origin)) do
 						reveal(cell)
 					end
 				end

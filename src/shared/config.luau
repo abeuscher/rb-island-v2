@@ -36,9 +36,11 @@ return {
 	SIM_MATCHES_PER_PAIR = 200,
 
 	-- Seconds of elapsed match time, replacing the old round-keyed UNLOCK_ROUND.
-	-- Evenly spaced placeholders standing in for the old round cadence, pending §18.
+	-- terrain_edit is open from the moment live play starts (raise/lower are how a
+	-- player shapes their defense from turn one, not a later-game unlock);
+	-- reclamation stays a placeholder pending §18.
 	UNLOCK_TIME = {
-		terrain_edit = 20,
+		terrain_edit = 0,
 		reclamation = 60,
 	},
 
@@ -143,7 +145,7 @@ return {
 		scout = {
 			id = "scout",
 			display_name = "Scout Drone",
-			supply_cost = 12,
+			supply_cost = 4,
 			energy_cost = 1,
 			hp = 3,
 			footprint = 1,
@@ -153,7 +155,7 @@ return {
 			damage = 0,
 			cooldown_seconds = 8,
 			splash = nil,
-			reveal_mode = "impact",
+			reveal_mode = "scout",
 			unlock_time = 20,
 		},
 	},

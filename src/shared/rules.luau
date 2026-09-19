@@ -404,12 +404,12 @@ function Rules.tick(config, state)
 
 	local newBeliefA = newState.players.A.belief
 	for _, s in ipairs(shotsA) do
-		newBeliefA = Fog.applyReveal(config, newState.board, newStructsB, newBeliefA, s.def, s.shot, destroyedSetB)
+		newBeliefA = Fog.applyReveal(config, newState.board, newStructsB, newBeliefA, s.def, s.shot, s.origin, destroyedSetB)
 	end
 
 	local newBeliefB = newState.players.B.belief
 	for _, s in ipairs(shotsB) do
-		newBeliefB = Fog.applyReveal(config, newState.board, newStructsA, newBeliefB, s.def, s.shot, destroyedSetA)
+		newBeliefB = Fog.applyReveal(config, newState.board, newStructsA, newBeliefB, s.def, s.shot, s.origin, destroyedSetA)
 	end
 
 	local revealPointsA = revealPointsEarned(config, newState.players.A.belief, newBeliefA)

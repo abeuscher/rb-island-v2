@@ -15,8 +15,11 @@ local TOOLS_SETUP = {
 	{ id = "place:base", label = "Place Base" },
 	{ id = "bulldoze", label = "Bulldoze" },
 }
--- typeId on a tool means "this costs Supply to use" -- its button gets a price
--- label and dims when the player can't currently afford it (§18).
+-- typeId on a tool means "this costs Supply, at config.STRUCTURES[typeId].
+-- supply_cost, to use"; costKey means the same but for a flat config cost
+-- (terrain edits aren't structures, so they have no STRUCTURES entry to read
+-- from). Either one gets the button a price label that dims when the player
+-- can't currently afford it, the same as a weapon (§18).
 local TOOLS_ROUNDS = {
 	{ id = "place:generator", label = "Build Generator", typeId = "generator" },
 	{ id = "place:cannon", label = "Build Cannon", typeId = "cannon" },
@@ -24,10 +27,21 @@ local TOOLS_ROUNDS = {
 	{ id = "place:missile", label = "Build Missile", typeId = "missile" },
 	{ id = "place:scout", label = "Build Scout Drone", typeId = "scout" },
 	{ id = "bulldoze", label = "Bulldoze" },
-	{ id = "raise", label = "Raise Terrain" },
-	{ id = "lower", label = "Lower Terrain" },
-	{ id = "reclaim", label = "Reclaim Land" },
+	{ id = "raise", label = "Raise Terrain", costKey = "RAISE_COST" },
+	{ id = "lower", label = "Lower Terrain", costKey = "LOWER_COST" },
+	{ id = "reclaim", label = "Reclaim Land", costKey = "RECLAIM_COST" },
 }
+
+-- The Supply cost of arming `tool`, or nil if it's free (bulldoze).
+local function toolCost(config, tool)
+	if tool.typeId then
+		return config.STRUCTURES[tool.typeId].supply_cost
+	end
+	if tool.costKey then
+		return config[tool.costKey]
+	end
+	return nil
+end
 
 local AFFORDABLE_TEXT_COLOR = Color3.fromRGB(240, 240, 240)
 local UNAFFORDABLE_TEXT_COLOR = Color3.fromRGB(120, 120, 120)
@@ -128,12 +142,18 @@ function BuildPalette.mount(parent, controller)
 		for order, tool in ipairs(tools) do
 			local button = makeButton(tool.label, order, toolFrame)
 			toolButtons[tool.id] = button
-			if tool.typeId then
+			local cost = toolCost(controller.config, tool)
+			if cost then
 				button.TextXAlignment = Enum.TextXAlignment.Left
-				local cost = controller.config.STRUCTURES[tool.typeId].supply_cost
 				toolCostLabels[tool.id] = addCostLabel(button, tostring(cost))
 			end
 			button.MouseButton1Click:Connect(function()
+				if tool.id == "place:base" and controller.phase == "setup" and controller:countOwnBases() >= controller.config.NUM_BASES then
+					return
+				end
+				if cost and controller.state and controller.state.self.resources.supply < cost then
+					return
+				end
 				controller:setTool(tool.id)
 				setActive(tool.id)
 			end)
@@ -152,21 +172,47 @@ function BuildPalette.mount(parent, controller)
 		end
 	end
 
-	-- Dims a cost-bearing tool's label/price once Supply can't cover it, without
-	-- disabling the button -- Supply keeps accruing, so a tool that's unaffordable
-	-- this instant may not be a couple seconds from now, and the server is the
-	-- real gate on affordability regardless (§18).
+	-- Dims a cost-bearing tool's label/price once Supply can't cover it. Supply
+	-- keeps accruing, so a tool that's unaffordable this instant may not be a
+	-- couple seconds from now, and the server is the real gate on affordability
+	-- regardless (§18) -- but if the armed tool itself just became unaffordable
+	-- (its own cost, or another purchase draining Supply out from under it), it's
+	-- deselected the same way setup's base tool deselects once bases are maxed,
+	-- rather than leaving the cursor showing a placement the player can't afford.
 	local function updateAffordability()
 		if not controller.state then
 			return
 		end
 		local supply = controller.state.self.resources.supply
 		for _, tool in ipairs(currentTools) do
-			if tool.typeId then
-				local affordable = supply >= controller.config.STRUCTURES[tool.typeId].supply_cost
+			local cost = toolCost(controller.config, tool)
+			if cost then
+				local affordable = supply >= cost
 				toolButtons[tool.id].TextColor3 = affordable and AFFORDABLE_TEXT_COLOR or UNAFFORDABLE_TEXT_COLOR
 				toolCostLabels[tool.id].TextColor3 = affordable and AFFORDABLE_COST_COLOR or UNAFFORDABLE_COST_COLOR
+				if not affordable and activeTool == tool.id then
+					controller:setTool("none")
+					setActive(nil)
+				end
 			end
+		end
+	end
+
+	-- Once setup's 3 bases are all placed, "Place Base" is done being useful --
+	-- gray it out, and if it's still the armed tool, drop back to bulldoze rather
+	-- than leaving the cursor showing a valid-looking placement preview for a base
+	-- the server will reject anyway (§8: setup's base count is capped at Ready
+	-- time, but the tool itself doesn't know to stop offering it).
+	local function updateBaseCap()
+		local baseButton = toolButtons["place:base"]
+		if not baseButton or controller.phase ~= "setup" then
+			return
+		end
+		local maxed = controller:countOwnBases() >= controller.config.NUM_BASES
+		baseButton.TextColor3 = maxed and UNAFFORDABLE_TEXT_COLOR or AFFORDABLE_TEXT_COLOR
+		if maxed and activeTool == "place:base" then
+			controller:setTool("bulldoze")
+			setActive("bulldoze")
 		end
 	end
 
@@ -197,6 +243,7 @@ function BuildPalette.mount(parent, controller)
 	local function refresh()
 		rebuildTools()
 		updateAffordability()
+		updateBaseCap()
 
 		local showWeapons = controller.phase ~= "setup"
 		weaponHeader.Visible = showWeapons

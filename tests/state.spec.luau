@@ -58,13 +58,6 @@ t.test("bulldozeStructure removes the structure without a refund", function()
 	t.expectEqual(afterBulldoze.players.A.resources.supply, afterPlace.players.A.resources.supply)
 end)
 
-t.test("terrain editing is locked before its unlock time", function()
-	local state = State.new(config)
-	local unchanged, ok, err = State.raiseTerrain(config, state, "A", 6, 7)
-	t.expectFalse(ok)
-	t.expectEqual(err, "terrain_edit is not unlocked yet")
-end)
-
 local function atElapsed(config_, elapsed)
 	local state = State.new(config_)
 	state.elapsed = elapsed

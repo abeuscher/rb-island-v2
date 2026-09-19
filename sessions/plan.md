@@ -472,7 +472,7 @@ for it.
 
 ### Scout drone reveal shape
 
-- **Status:** open
+- **Status:** done (Session 018)
 - **Prerequisites:** none — "New weapon types: missiles and scout drones" (done, Session 016) is
   the only thing this builds on.
 - **Success criterion:** A fired scout drone reveals a 3-cell-wide corridor along its flight
@@ -493,9 +493,36 @@ for it.
   more ground than the weapon whose whole job is recon, which is backwards. The 3-wide corridor
   and 4x4 block are sized against today's island; revisit both numbers if the board is ever
   enlarged, so the drone's footprint stays proportionate.
+- **Outcome:** Shipped as scoped — `Fog.revealedCells` branches on `def.reveal_mode`
+  (`"beam"`/`"scout"`/default-impact), `Flight.beamCells` exported for the corridor walk,
+  `Fog.applyReveal`/`rules.luau`/`Render.luau` thread the firing origin through. 4x4 block
+  anchored `[target-1, target+2]` on both axes; diagonal corridor widens on whichever axis has
+  fewer steps. `lune run test`: 90/90 at the time (87 + 3 new fog specs), later 89/89 after an
+  unrelated same-session test removal (see below). User-confirmed live in Studio.
+  User feedback in the same session drove five more changes, all shipped: scout
+  `supply_cost` 12 → 4 (was priced like a Cannon for a zero-damage weapon); a real bug fix in
+  `PlanController:stopClock()` (was a no-op, leaking the `StateUpdate` connection across
+  restarts and breaking Restart for bot/online matches — Practice was unaffected); setup's
+  "Place Base" tool now grays out/deselects once `NUM_BASES` is placed, matching a new general
+  rule that any round tool (weapon or terrain edit) auto-deselects once unaffordable; Raise/
+  Lower/Reclaim now show their Supply cost like weapons do (`BuildPalette.luau` gained a
+  `costKey` alongside `typeId` for tools with no `config.STRUCTURES` entry); and
+  `UNLOCK_TIME.terrain_edit` 20 → 0 (terrain shaping is available from the start of live play,
+  not gated behind an elapsed-time window that happened to coincide with early weapon unlocks).
+  `state.spec.luau`'s "terrain editing is locked before its unlock time" test was removed as
+  obsolete under the 0-second unlock (`reclaimLand`'s own lock test already covers the same
+  `requireUnlocked` mechanism). Restart and the base-cap UI fix weren't individually
+  re-confirmed live after landing — see the session log's "Notes for next session."
 
 ---
 
 ## Notes
 
 Free-form project notes.
+
+- **Fixed inventory / build-count caps (raised Session 018):** a general lever the user
+  wants available for the buy menu — capping how many of a given structure type a player
+  can have built at once (the way setup's 3 bases already work, just generalized and
+  exposed as a real per-type config knob rather than base's one-off hardcoded
+  `NUM_BASES`/ready-gate special case). Not needed by anything built so far; no plan entry
+  yet. Revisit if/when a specific weapon or structure actually needs a cap.

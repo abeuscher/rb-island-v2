@@ -218,11 +218,20 @@ function PlanController:getSecondsRemaining()
 	return math.max(0, self.config.MATCH_SECONDS - elapsed)
 end
 
--- No-ops: kept for interface parity with PracticeController (whose local
--- countdown genuinely needs a heartbeat). Nothing here needs its own clock --
--- the server's tick pushes are the clock.
+-- startClock is a no-op: kept for interface parity with PracticeController
+-- (whose local countdown genuinely needs a heartbeat) -- the server's tick
+-- pushes are the clock here. stopClock isn't a no-op though: it's PlanUI's
+-- only teardown hook, so it's where the StateUpdate connection opened in
+-- .new() has to be dropped -- left connected, a restarted match leaves the
+-- old, torn-down controller still listening and reacting to every state push
+-- meant for the new one.
 function PlanController:startClock() end
-function PlanController:stopClock() end
+function PlanController:stopClock()
+	if self._stateConn then
+		self._stateConn:Disconnect()
+		self._stateConn = nil
+	end
+end
 
 -- Ready only ever matters during setup now -- ending a "round" early isn't a
 -- concept once there's no round. The server itself no-ops a "live" Ready.

@@ -305,9 +305,9 @@ t.test("the scout drone deals no damage but still reveals what it targets, like 
 	state.elapsed = cfg.STRUCTURES.scout.unlock_time
 	state = State.withPlayer(state, "A", { structures = { withBase(6, 7) }, resources = { supply = 100, energy = 10 } })
 	state = State.withPlayer(state, "B", {
-		-- Generator sits well clear of the base's own footprint (§ below) so the
-		-- drone's impact+neighbors reveal only ever touches the generator's single
-		-- cell, not a second belief cell belonging to the same structure.
+		-- Generator sits well clear of the base's own footprint, and far enough from
+		-- the base that the drone's corridor+block reveal (session 018) never reaches
+		-- the base's cells, so revealPoints below only ever credits the generator.
 		structures = {
 			withBase(30, 10),
 			{ typeId = "generator", x = 24, y = 10, hp = cfg.STRUCTURES.generator.hp, underConstruction = false },

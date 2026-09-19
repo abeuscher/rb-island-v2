@@ -24,7 +24,7 @@ end
 -- matches "Bresenham line" closely enough for a square grid and gives each cell a
 -- clean t = step / totalSteps fraction to interpolate beam height against -- the
 -- spec names the algorithm but not this fraction's distance metric).
-local function beamCells(sx, sy, tx, ty)
+function Flight.beamCells(sx, sy, tx, ty)
 	local dx = tx - sx
 	local dy = ty - sy
 	local steps = math.max(math.abs(dx), math.abs(dy))
@@ -55,7 +55,7 @@ function Flight.resolveShot(board, def, sx, sy, tx, ty)
 	local ht = Board.elevationAt(board, tx, ty)
 	local muzzle = hs + 1
 	local beamPath = {}
-	for _, cell in ipairs(beamCells(sx, sy, tx, ty)) do
+	for _, cell in ipairs(Flight.beamCells(sx, sy, tx, ty)) do
 		table.insert(beamPath, { x = cell.x, y = cell.y })
 		local beamHeight = muzzle + (ht - muzzle) * cell.t
 		if Board.elevationAt(board, cell.x, cell.y) > beamHeight then
