@@ -155,6 +155,21 @@ function Kit.plottedEnemyStructures(view)
 	return found
 end
 
+-- Every cell in `cells` a weapon at (wx, wy) could legally hit right now: in
+-- range and not blocked by terrain. Shared by Kit.chooseTargets and any
+-- archetype that wants its own targeting priority over the same reachability
+-- check (see sim/archetypes/recon.luau).
+function Kit.reachableCells(board, def, wx, wy, cells)
+	local hits = {}
+	for _, cell in ipairs(cells) do
+		local shot = Flight.resolveShot(board, def, wx, wy, cell.x, cell.y)
+		if shot.inRange and not shot.blocked then
+			table.insert(hits, cell)
+		end
+	end
+	return hits
+end
+
 function Kit.liveStructures(view, typeId)
 	local list = {}
 	for _, structure in ipairs(view.self.structures) do
@@ -197,7 +212,10 @@ end
 -- reachable unexplored cell (height buys information, §11), then any
 -- reachable known cell as a last resort so a weapon still fires rather than
 -- sitting idle. A weapon with nothing legal to hit is left untargeted.
-function Kit.chooseTargets(config, view, pendingWeapons)
+-- `focusBases`, if given, replaces the base list every weapon picks from --
+-- lets a caller commit every weapon to the same single base instead of each
+-- one independently randomizing among everything currently plotted.
+function Kit.chooseTargets(config, view, pendingWeapons, focusBases)
 	local commands = {}
 	local plottedBases, plottedGenerators = {}, {}
 	for _, s in ipairs(Kit.plottedEnemyStructures(view)) do
@@ -206,6 +224,9 @@ function Kit.chooseTargets(config, view, pendingWeapons)
 		elseif s.typeId == "generator" then
 			table.insert(plottedGenerators, s)
 		end
+	end
+	if focusBases then
+		plottedBases = focusBases
 	end
 
 	local opponentLand = Kit.opponentLandCells(view)
@@ -217,14 +238,7 @@ function Kit.chooseTargets(config, view, pendingWeapons)
 	end
 
 	local function reachable(def, wx, wy, cells)
-		local hits = {}
-		for _, cell in ipairs(cells) do
-			local shot = Flight.resolveShot(view.board, def, wx, wy, cell.x, cell.y)
-			if shot.inRange and not shot.blocked then
-				table.insert(hits, cell)
-			end
-		end
-		return hits
+		return Kit.reachableCells(view.board, def, wx, wy, cells)
 	end
 
 	local weapons = Kit.liveStructures(view)

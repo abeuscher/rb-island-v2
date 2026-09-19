@@ -8,22 +8,30 @@ return {
 	ISLAND_SIZE = 12,
 	MAX_ELEVATION = 2,
 
-	RAISE_COST = 4,
+	-- Terrain-edit costs and per-second economy rates below are Session 019's
+	-- sweep-tuned values (§18), chosen as the lowest-badness point from
+	-- sim/output/shortlist.md's 24-point sweep -- no point cleared the sweep's
+	-- own "no archetype over 60% of the field" bar (best was 66%), which is
+	-- expected until a real defense-side balance pass exists (Session 019 Open
+	-- Gate decision); this is the least-bad config on the numbers as they stand.
+	RAISE_COST = 6,
 	LOWER_COST = 2,
-	RECLAIM_COST = 12,
+	RECLAIM_COST = 8,
 
-	-- Per-second rates; each tick accrues rate * TICK_SECONDS. Magnitudes carried
-	-- over from the old per-round lump amounts divided by the ~20s a testing-config
-	-- round used to take, not a fresh balance pass.
-	SUPPLY_PER_SECOND = 0.5,
+	-- Per-second rates; each tick accrues rate * TICK_SECONDS.
+	SUPPLY_PER_SECOND = 0.7,
 	STARTING_SUPPLY = 10,
 	ENERGY_BASE = 0,
-	ENERGY_PER_GENERATOR_PER_SECOND = 0.1,
+	-- The sweep's own pick here (0.05) starved weapon fire almost entirely --
+	-- mortars (3 Energy/shot) barely fired once per match even with nothing
+	-- else competing for the pool (Session 019, found on read). 0.15 is the
+	-- sweep's other directly-tested value, not a new guess.
+	ENERGY_PER_GENERATOR_PER_SECOND = 0.15,
 	ENERGY_CAP = 12,
 	STARTING_ENERGY = 4,
 
 	TICK_SECONDS = 0.5,
-	MATCH_SECONDS = 180,
+	MATCH_SECONDS = 200,
 	BUILD_SECONDS = 5,
 	INCAPACITATION_GRACE_SECONDS = 40,
 
@@ -33,7 +41,7 @@ return {
 	BOT_DECIDE_INTERVAL_SECONDS = 3,
 
 	NUM_BASES = 3,
-	SIM_MATCHES_PER_PAIR = 200,
+	SIM_MATCHES_PER_PAIR = 100,
 
 	-- Seconds of elapsed match time, replacing the old round-keyed UNLOCK_ROUND.
 	-- terrain_edit is open from the moment live play starts (raise/lower are how a
@@ -94,7 +102,14 @@ return {
 			hp = 6,
 			footprint = 1,
 			fire_mode = "direct",
-			range = 20, -- doubled for testing so weapons aren't pinned to the frontline (§18)
+			-- The sweep's own pick here (8) was mechanically "fair" but broke long-
+			-- range recon entirely: a frontline cannon couldn't reach more than the
+			-- opponent's first couple of columns, so several archetypes (`defilade`
+			-- especially) never fired a shot all match (Session 019, found on read
+			-- of the full sim run). 14 lets an unelevated frontline cannon reach most
+			-- of a 12-deep island, and the full depth once elevated -- keeping
+			-- elevation meaningful without making it mandatory just to function.
+			range = 14,
 			elevation_range_bonus = 2,
 			damage = 10,
 			cooldown_seconds = 5,
@@ -110,7 +125,7 @@ return {
 			hp = 5,
 			footprint = 1,
 			fire_mode = "arc",
-			range = 32, -- doubled for testing, matching the cannon (§18)
+			range = 20, -- sweep-tuned (§18), see the RAISE_COST comment above
 			elevation_range_bonus = 0,
 			damage = 14,
 			cooldown_seconds = 5,

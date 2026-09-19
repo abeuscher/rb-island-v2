@@ -2,6 +2,7 @@
 -- cell (height and color carry the elevation level), one water plate underneath.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Board = require(ReplicatedStorage.Shared.board)
 local Config = require(ReplicatedStorage.Shared.config)
@@ -15,6 +16,7 @@ local LEVEL_COLORS = {
 }
 local WATER_COLOR = Color3.fromRGB(46, 111, 173)
 local WATER_THICKNESS = 1
+local RAISE_TWEEN = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 local function makePart(size, position, color, name, parent)
 	local part = Instance.new("Part")
@@ -64,6 +66,40 @@ function ClientBoard.build(parent, board)
 	end
 
 	return board
+end
+
+-- Updates one land cell's part to `board`'s current elevation, tweening the
+-- height/position/color change (raise/lower/reclaim) instead of snapping.
+-- Called only for cells that actually changed, so an in-flight tween is never
+-- interrupted by an unrelated tick's redraw the way a full ClientBoard.build
+-- would (§18 "terrain rise/fall" polish).
+function ClientBoard.updateCell(parent, board, x, y)
+	local studsPerCell = Config.STUDS_PER_CELL
+	local cell = Board.getCell(board, x, y)
+	local name = string.format("Cell_%d_%d", x, y)
+	local existing = parent:FindFirstChild(name)
+
+	if not cell.land then
+		if existing then
+			existing:Destroy()
+		end
+		return
+	end
+
+	local cellHeight = (cell.elevation + 1) * studsPerCell
+	local position = Vector3.new((x - 0.5) * studsPerCell, cellHeight / 2, (y - 0.5) * studsPerCell)
+	local color = LEVEL_COLORS[cell.elevation]
+
+	if not existing then
+		makePart(Vector3.new(studsPerCell, cellHeight, studsPerCell), position, color, name, parent)
+		return
+	end
+
+	TweenService:Create(existing, RAISE_TWEEN, {
+		Size = Vector3.new(studsPerCell, cellHeight, studsPerCell),
+		Position = position,
+		Color = color,
+	}):Play()
 end
 
 return ClientBoard

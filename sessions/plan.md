@@ -447,7 +447,7 @@ for it.
 
 ### Ship polish and balance pass
 
-- **Status:** open, scope pending re-derivation
+- **Status:** done (Session 019)
 - **Prerequisites:** Bot opponent, Sim harness rewrite, Client real-time UI, Bot re-adaptation
 - **Success criterion:** Resolve-phase feedback (projectile arcs, impacts, crumbling rubble, terrain rise/fall) is polished, the README documents run/sync/asset-name/config-tuning instructions, a balance pass is applied from a fresh sweep shortlist (produced by the rewritten, time-keyed harness above — the Session 003 shortlist no longer applies), and every self-playtest check from the proposal (win, loss, blocked shot, cleared shot, stale plot, exploit check, each victory condition, restart) passes.
 - **Artifact:** polished client feedback, README, final tuned `config.luau`.
@@ -469,6 +469,33 @@ for it.
   sweep tunes. See `sim/output/shortlist.md` for the current numbers — re-deriving this entry's
   scope means deciding whether/how to address those two structural issues before a balance pass
   can mean anything, not just re-running the sweep with different knobs.
+- **Outcome:** Re-derivation concluded the structural finding was really about archetype
+  passivity, not missing terrain scoring — added `sim/archetypes/rush.luau` (fast opening,
+  focus-fire) and `Kit.chooseTargets` gained an optional `focusBases` parameter so weapons can
+  commit to one target instead of randomizing; time-limit share dropped from ~100% to ~60-70%
+  and terrain investment (`highground`) stopped being uniformly punished, no `POINTS` change
+  needed. Re-ran the sweep with `rush` included; still zero literal survivors of its 60%-bar
+  (best 66%), accepted per the user's call — that's a defense-side balance question for a
+  future session. Applying the sweep's own picks live surfaced two as broken rather than
+  suboptimal: `CANNON_RANGE` 8 left `defilade`'s deliberately-set-back cannons unable to reach
+  anything all match (never fired), and `ENERGY_PER_GENERATOR_PER_SECOND` 0.05 starved mortars
+  almost entirely since cheaper cannons always claim the shared Energy pool first each tick —
+  both found by building a second archetype (`sim/archetypes/recon.luau`) and instrumenting
+  shot counts, not by the sweep itself. Overrode to 14 and 0.15 (the sweep's own other tested
+  candidate); `base_elimination` rose from ~0.1% to ~5% field-wide once `recon` also stood its
+  cannons down once a mortar existed to finish the job. Final tuned `config.luau`: `RAISE_COST`
+  6, `RECLAIM_COST` 8, `SUPPLY_PER_SECOND` 0.7, `ENERGY_PER_GENERATOR_PER_SECOND` 0.15,
+  `MATCH_SECONDS` 200, cannon range 14, mortar range 20. Resolve-phase polish: fixed the
+  player's own board doing a full destroy-and-rebuild every tick (same anti-pattern Session 014
+  fixed for the enemy board, never applied here) so raise/lower/reclaim now tween instead of
+  snapping, and destroyed structures now crumble into rubble instead of popping. Wrote
+  `README.md` (didn't exist before). `lune run test`: 89/89. The self-playtest checklist itself
+  was **not run** — needs a live Studio pass, carried to the next session's starting state,
+  same as Session 018's still-unconfirmed Restart/base-cap-UI items. A follow-up design
+  conversation (sim weapon strategy is duplicated per-archetype by literal type name, which is
+  why `missile`/`scout` are unused by any sim archetype despite being stat-complete since
+  Session 016) produced a new plan entry, "Sim weapon roles and loadout matrix", rather than
+  being built ad hoc here.
 
 ### Scout drone reveal shape
 
@@ -513,6 +540,100 @@ for it.
   obsolete under the 0-second unlock (`reclaimLand`'s own lock test already covers the same
   `requireUnlocked` mechanism). Restart and the base-cap UI fix weren't individually
   re-confirmed live after landing — see the session log's "Notes for next session."
+
+### Sim weapon roles and loadout matrix
+
+- **Status:** open, not started
+- **Prerequisites:** none hard. Everything it builds on is already done — "New weapon types:
+  missiles and scout drones" (Session 016), "Sim harness rewrite" (Session 017), "Scout drone
+  reveal shape" (Session 018). Nothing about the shipped game is blocked on this; what's blocked
+  is the sim's own coverage, which is the thing "Ship polish and balance pass" has to be able to
+  trust. Worth landing before that entry's shortlist is treated as the balance answer — a sweep
+  run against a field where no archetype ever builds a missile or a scout drone is tuning half
+  the weapon roster blind.
+- **Success criterion:** (a) `missile` and `scout` are built and fired by at least some sim
+  archetypes — a full `lune run sim` round robin reports non-zero `Metrics.purchaseShare` and
+  non-zero shots fired for both — and they get there by being *declared*, not by hand-writing a
+  bespoke eighth and ninth archetype file. (b) The cannon stand-down currently hand-written
+  inline in `sim/archetypes/recon.luau` (the `standDown` local in `chooseReconTargets`) is
+  deleted and replaced by a declared per-weapon hold-fire condition every archetype gets for
+  free, so no cheap weapon spends the match draining the shared Energy pool a costlier one is
+  saving for. (c) Energy sizing is derived from a loadout's actual aggregate draw (each active
+  weapon's `energy_cost / cooldown_seconds` against `ENERGY_PER_GENERATOR_PER_SECOND`) instead
+  of each archetype's hand-picked `GENERATOR_TARGET` literal. (d) A curated adversarial
+  base-placement suite runs *alongside* (not instead of) `Kit.spreadPick`'s randomized spread —
+  at minimum all-three-clustered-in-one-corner, all-three-in-a-back-row, and decoy-forward /
+  real-bases-deep — as its own fast, cheap pass, reporting per-layout victory-condition and
+  time-to-first-base breakdowns; any archetype that fails to ever locate a base under a layout is
+  named as a blind spot and gets a real fix, not a note. (e) `sim/` gains its first test coverage
+  under `tests/` (`tests/metrics.spec.luau` already specs `sim/metrics.luau` from there — same
+  pattern, no new runner): at minimum a short-match smoke spec asserting that every registered
+  archetype places its bases, ends the match having fired at least one shot, and has at least one
+  weapon whose range actually reaches enemy territory under the shipped config — literally the
+  assertion that would have caught `defilade` below in one `lune run test` instead of hiding for a
+  session behind multi-minute aggregate runs. (f) The intake checklist for adding a new weapon or
+  structure to the sim is written down where the next person will hit it (README plus the module
+  header comments `sim/` already uses to carry this kind of rule), and is demonstrated end to end
+  on one weapon rather than just asserted. `lune run test` passes; `lune run sim` and `lune run
+  sweep` still produce every metric "Sim harness rewrite" listed.
+- **Artifact:** `sim/archetypes.luau` (flat 7-entry registry → loadout generator),
+  `sim/archetypes/*.luau`, `src/shared/archetypeKit.luau` (`Kit.chooseTargets` gains the declared
+  priority/hold-fire hooks; `Kit.spreadPick` gains a curated-layout sibling), `sim/harness.luau`
+  (the placement-suite pass), `sim/metrics.luau` / `sim/report.luau` (per-loadout and per-layout
+  breakdowns), new `tests/*.spec.luau`, README. **The shape below is a starting proposal to
+  validate, not a mandate** — it came out of Session 019's conversation and reconsidering it is
+  this entry's first job, the same way "Weapon inspection and control panel" holds its own design
+  open: a `sim/weaponRoles/<typeId>.luau` module per weapon type, sitting alongside (not inside)
+  its `config.STRUCTURES` stats entry, declaring a category tag (recon / direct-damage /
+  arc-finisher / support-economy), a build trigger, a target priority, and a stand-down
+  condition; archetypes then become declarative loadouts — an ordered list of category slots
+  (e.g. one recon slot + one finisher slot) — that the harness fills combinatorially from each
+  category, so weapon pairings get covered without hand-authoring an archetype file per
+  combination. Whether those roles stay in `sim/` or get promoted to `src/shared/` the way
+  `view.luau` (Session 008) and `archetypeKit.luau` (Session 009) were is an open question this
+  entry should answer rather than assume — `server/Bot.luau` has the same per-weapon-by-name
+  hardcoding and the same missing scout-drone placement strategy that Session 016 deliberately
+  deferred.
+- **Finding (Session 019):** two sweep-chosen config values turned out to be empirically
+  catastrophic and had to be overridden by hand, diagnosed with an ad hoc instrumented script
+  rather than by the sweep itself. `CANNON_RANGE` 8 meant `defilade` — which deliberately sets its
+  cannons back from the frontline — never fired a single shot in an entire match; now 14.
+  `ENERGY_PER_GENERATOR_PER_SECOND` 0.05 meant mortars (3 Energy) almost never fired even with
+  nothing else competing for the pool, because `planShots` (`rules.luau`) pays out to whichever
+  weapon it checks first each tick — always the cheaper cannons (1 Energy), built first — so the
+  shared pool never accumulated a mortar's worth; now 0.15, which was the sweep's other tested
+  candidate rather than a fresh guess. Both point at the same gap this entry owns: the sweep
+  optimizes its own fairness formula and has no notion of a weapon being structurally unable to
+  fire, and `sim/` has no test coverage at all (`lune run test` only reaches the pure
+  `src/shared/` layer), so the only validation is eyeballing aggregates off thousands-of-match,
+  multi-minute runs.
+- **Finding (Session 019):** even after both overrides, `base_elimination` only rose to ~5% of
+  matches sim-wide — `time_limit` and `incapacitation` still decide nearly everything — and `rush`
+  (added this session) takes ~87% of its matches. The `recon` stand-down raised mortar
+  participation, but only for `recon`: it is one hand-written `if` inside one archetype file.
+  `missile` and `scout` have been complete, stat-balanced `config.STRUCTURES` entries since
+  Session 016, used by the real game and (missile) by `server/Bot.luau`, yet zero sim archetypes
+  reference either — every archetype hardcodes build order and targeting per weapon by literal
+  string (`Kit.countType(view, "cannon") < CANNON_TARGET`), copy-pasted and hand-tweaked across
+  seven files. There is no structural reason for the omission; nobody has hand-written the inline
+  logic. Base placement likewise has exactly one mode — `Kit.spreadPick`'s greedy farthest-point
+  sampling from a random start — so no archetype's exploration behaviour has ever been tested
+  against a deliberately awkward layout.
+- **Note (raised Session 019):** the user's framing, in their terms: each weapon type should be
+  worked into the sim's strategies *as it is added to the game*, shaped by its particular
+  strengths rather than bolted on generically or left out; not every archetype needs every weapon
+  — grouping weapons into categories and running combinations drawn from likely groupings is the
+  preferred shape; Energy production should be sized to what a loadout actually needs to sustain
+  fire, or weapons should stand down when they aren't needed for the win; and base placement
+  should keep its randomization but add a small curated set of "gotcha" layouts specifically to
+  expose exploration blind spots. Above all they asked for "some sort of matrix or intake/creation
+  process for new weapons and structures as we add them" — a repeatable checklist so a new weapon
+  lands in the sim by process rather than by someone remembering to write bespoke archetype logic.
+  Proposed intake steps, to be confirmed or replaced by this entry's design pass: (1) the
+  `config.STRUCTURES` stats entry — the existing, working process, unchanged; (2) a weapon-role
+  entry; (3) an Energy-sustain figure, preferably derived from `energy_cost`/`cooldown_seconds`
+  rather than hand-maintained; (4) a category tag so the loadout generator picks the weapon up
+  with no archetype edits at all.
 
 ---
 

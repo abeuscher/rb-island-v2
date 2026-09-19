@@ -12,7 +12,7 @@ local Report = require("../sim/report")
 -- Smaller than the baseline round robin's 200: the sweep trades per-point
 -- fidelity for breadth across many configs, then hands its shortlist to a
 -- full-fidelity human playtest rather than deciding anything itself.
-local MATCHES_PER_PAIR = 40
+local MATCHES_PER_PAIR = 20
 local BASE_SEED = 2000
 
 local function formatOverrides(overrides)

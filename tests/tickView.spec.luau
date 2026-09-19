@@ -14,20 +14,19 @@ end
 
 t.test("both sides' shots land in a single owner's view, each carrying the firing weapon's real cell", function()
 	local state = State.new(config)
-	-- The base's 2x2 footprint covers (6,7)-(7,8), so the cannon sits at (6,9) --
-	-- one row further out -- to avoid overlapping it (Structures.at, which
-	-- setTarget uses to find the weapon, returns the first structure whose
-	-- footprint covers the cell).
-	state = State.withPlayer(state, "A", { structures = { withBase(6, 7), withCannon(6, 9) }, resources = { supply = 100, energy = 10 } })
+	-- The cannon sits at A's frontmost column (17) rather than next to the
+	-- base at (6,7), so B's base at (24,7) is still within the cannon's
+	-- 8-cell range (§18).
+	state = State.withPlayer(state, "A", { structures = { withBase(6, 7), withCannon(17, 9) }, resources = { supply = 100, energy = 10 } })
 	state = State.withPlayer(state, "B", { structures = { withBase(24, 7) }, resources = { supply = 100, energy = 10 } })
-	state = Rules.applyCommand(config, state, "A", { type = "target", x = 6, y = 9, targetX = 24, targetY = 7 })
+	state = Rules.applyCommand(config, state, "A", { type = "target", x = 17, y = 9, targetX = 24, targetY = 7 })
 
 	local _, _, _, resolution = Rules.tick(config, state)
 
 	local view = TickView.new("A", resolution, {})
 	t.expectEqual(#view.shots, 1)
 	t.expectEqual(view.shots[1].owner, "A")
-	t.expectEqual(view.shots[1].origin.x, 6)
+	t.expectEqual(view.shots[1].origin.x, 17)
 	t.expectEqual(view.shots[1].origin.y, 9)
 
 	local enemyView = TickView.new("B", resolution, {})

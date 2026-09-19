@@ -202,16 +202,17 @@ t.test("Rules.tick awards reveal points once per newly-sighted live structure, n
 	local state = State.new(cfg)
 	state = State.withPlayer(state, "A", { structures = { withBase(6, 7) } })
 	state = State.withPlayer(state, "B", {
-		-- Both on B's own land (24-35): the generator at x=26 sits on the direct
-		-- beam from A's cannon at x=17 to the base at x=30, well short of it.
+		-- Both on B's own land (24-35): the generator at x=24 sits on the direct
+		-- beam from A's cannon at x=17 to the base at x=25, right at the cannon's
+		-- 8-cell range (§18).
 		structures = {
-			withBase(30, 10),
-			{ typeId = "generator", x = 26, y = 10, hp = config.STRUCTURES.generator.hp, underConstruction = false },
+			withBase(25, 10),
+			{ typeId = "generator", x = 24, y = 10, hp = config.STRUCTURES.generator.hp, underConstruction = false },
 		},
 	})
 
 	local afterPlace = Rules.applyCommand(cfg, state, "A", { type = "place", typeId = "cannon", x = 17, y = 10 })
-	local afterTarget = Rules.applyCommand(cfg, afterPlace, "A", { type = "target", x = 17, y = 10, targetX = 30, targetY = 10 })
+	local afterTarget = Rules.applyCommand(cfg, afterPlace, "A", { type = "target", x = 17, y = 10, targetX = 25, targetY = 10 })
 
 	-- The beam crosses the generator on the way to the base -- both get revealed
 	-- by this first shot, even though only the base takes damage.
@@ -222,7 +223,7 @@ t.test("Rules.tick awards reveal points once per newly-sighted live structure, n
 	-- Single shot clears the target on firing (§18), so a second shot needs a
 	-- fresh target command -- re-sighting the same live structures still must
 	-- not double-count.
-	local retargeted = Rules.applyCommand(cfg, afterFirstShot, "A", { type = "target", x = 17, y = 10, targetX = 30, targetY = 10 })
+	local retargeted = Rules.applyCommand(cfg, afterFirstShot, "A", { type = "target", x = 17, y = 10, targetX = 25, targetY = 10 })
 	local afterSecondShot = Rules.tick(cfg, retargeted)
 	t.expectEqual(afterSecondShot.players.A.shotsFired, 2)
 	t.expectEqual(afterSecondShot.players.A.revealPoints, afterFirstShot.players.A.revealPoints)

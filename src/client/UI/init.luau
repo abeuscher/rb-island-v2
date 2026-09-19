@@ -12,6 +12,7 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.config)
+local SharedBoard = require(ReplicatedStorage.Shared.board)
 local ClientBoard = require(script.Parent.Board)
 local ClientCamera = require(script.Parent.Camera)
 local Input = require(script.Parent.Input)
@@ -76,9 +77,30 @@ function PlanUI.mount(owner, mode, remotes)
 	local palette = BuildPalette.mount(screenGui, controller)
 	local clock = RoundClock.mount(screenGui, controller)
 
+	local lastBoard = nil
+
+	-- Full rebuild on the first frame; after that, only the cells whose
+	-- elevation/land actually changed get touched (via ClientBoard.updateCell,
+	-- tweened) instead of clearing and rebuilding the whole board on every
+	-- tick's onChange -- the same "don't redraw what didn't change" fix
+	-- Session 014 made for the enemy board, applied here to the player's own.
 	local function renderBoard()
-		boardFolder:ClearAllChildren()
-		ClientBoard.build(boardFolder, controller.state.board)
+		local board = controller.state.board
+		if not lastBoard then
+			boardFolder:ClearAllChildren()
+			ClientBoard.build(boardFolder, board)
+		else
+			for x = 1, board.width do
+				for y = 1, board.height do
+					local old = SharedBoard.getCell(lastBoard, x, y)
+					local new = SharedBoard.getCell(board, x, y)
+					if old.land ~= new.land or old.elevation ~= new.elevation then
+						ClientBoard.updateCell(boardFolder, board, x, y)
+					end
+				end
+			end
+		end
+		lastBoard = board
 		StructureView.render(structureFolder, controller)
 	end
 

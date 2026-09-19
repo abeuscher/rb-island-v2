@@ -83,17 +83,25 @@ local function addGlyph(parent, text)
 	label.Parent = billboard
 end
 
+-- Starts roughly the size/height a placed structure occupies and settles into
+-- the flatter rubble footprint, so a destroyed structure visibly crumbles
+-- down instead of popping straight into its rubble shape.
 local function spawnRubble(config, board, parent, x, y)
 	local cx, cz = cellCenter(config, x, y)
 	local top = cellTop(config, board, x, y)
-	makePart(
+	local finalHeight = config.STUDS_PER_CELL * 0.4
+	local rubble = makePart(
 		string.format("Rubble_%d_%d", x, y),
-		Vector3.new(config.STUDS_PER_CELL * 0.8, config.STUDS_PER_CELL * 0.4, config.STUDS_PER_CELL * 0.8),
-		Vector3.new(cx, top + config.STUDS_PER_CELL * 0.2, cz),
+		Vector3.new(config.STUDS_PER_CELL * 0.7, config.STUDS_PER_CELL, config.STUDS_PER_CELL * 0.7),
+		Vector3.new(cx, top + config.STUDS_PER_CELL / 2, cz),
 		RUBBLE_COLOR,
 		Enum.Material.Slate,
 		parent
 	)
+	TweenService:Create(rubble, TweenInfo.new(0.4, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out), {
+		Size = Vector3.new(config.STUDS_PER_CELL * 0.8, finalHeight, config.STUDS_PER_CELL * 0.8),
+		Position = Vector3.new(cx, top + finalHeight / 2, cz),
+	}):Play()
 end
 
 local function spawnImpact(config, board, parent, cell, blocked)
