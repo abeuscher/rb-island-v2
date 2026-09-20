@@ -26,14 +26,15 @@ local STRUCTURE_LABELS = {
 -- "incapacitation" is the one condition whose plain-language description
 -- depends on which side it actually happened to -- base_elimination and
 -- time_limit read the same regardless of winner, but "Opponent incapacitated"
--- would be backwards on a loss (§5.2: incapacitation is a hard loss for
--- whichever side it hits, not a score tiebreak).
+-- would be backwards if read off `winner`: incapacitation is decided by
+-- points (§14), so the incapacitated side can still be the one who wins.
+-- `victory.incapacitatedSide` names the actual side, independent of `winner`.
 local function conditionText(victory, owner)
 	if victory.condition == "incapacitation" then
-		if victory.winner == nil then
+		if victory.incapacitatedSide == "both" then
 			return "Both sides incapacitated"
 		end
-		return (victory.winner == owner) and "Opponent incapacitated" or "You were incapacitated"
+		return (victory.incapacitatedSide == owner) and "You were incapacitated" or "Opponent incapacitated"
 	elseif victory.condition == "base_elimination" then
 		return "All bases destroyed"
 	elseif victory.condition == "time_limit" then

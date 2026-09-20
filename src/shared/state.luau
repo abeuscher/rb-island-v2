@@ -257,4 +257,23 @@ function State.tickAccrue(config, state)
 	return withPlayer(newState, "B", accrued(newState.players.B))
 end
 
+-- withPlayer merges `fields` with `pairs`, which a plain Lua table can never
+-- report a `nil` value through -- `{ incapableSince = nil }` simply omits the
+-- key, so a withPlayer call meaning "clear this" was silently a no-op and a
+-- player who recovered (built a generator, economy fine again) stayed stuck
+-- with a stale incapableSince from an earlier brief squeeze, eventually
+-- losing (or winning) on a false "incapacitation" long after actually
+-- recovering. Direct field assignment, unlike a table literal, really can
+-- set a key to nil.
+function State.setIncapableSince(state, owner, since)
+	local players = table.clone(state.players)
+	local player = table.clone(players[owner])
+	player.incapableSince = since
+	players[owner] = player
+
+	local newState = table.clone(state)
+	newState.players = players
+	return newState
+end
+
 return State

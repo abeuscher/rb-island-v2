@@ -703,6 +703,46 @@ for it.
   its call surface into `sim/archetypes.luau`/`Harness` is unchanged. `server/Bot.luau` untouched,
   per the Open Gate scoping call.
 
+### Fair Energy allocation across weapons
+
+- **Status:** done (Session 022)
+- **Prerequisites:** Weapon inspection and control panel (Session 021 — the finding this
+  entry fixes)
+- **Success criterion:** `planShots` (`rules.luau`) no longer systematically favors whichever
+  weapon type happens to be cheapest and built first when multiple weapons share one Energy
+  pool; the starvation scenario Session 021 measured ad hoc (mortar alone: 4 shots/60s; mortar
+  alongside an auto-firing cannon: 1) has permanent Lune coverage instead of a throwaway
+  script.
+- **Artifact:** `src/shared/rules.luau` (`planShots`), `tests/rules.spec.luau`.
+- **Outcome:** A plain reorder (check the costlier weapon first each tick) was proposed and
+  then invalidated by direct measurement before shipping: against the real config numbers it
+  changed nothing (cannon 9 / mortar 1, identical to the original bug), since cannon's 1-Energy
+  threshold is so far below mortar's 3 that same-tick reordering never lets the pool sit still
+  long enough to reach 3. The fix that actually works is a full stand-down: a cheaper weapon
+  doesn't spend at all while a costlier one is also eligible to fire this tick, generalizing
+  `sim/loadout.luau`'s hold-fire pattern (a declared category table) into a direct Energy-cost
+  comparison over `planShots`' real per-tick candidate set. Measured, this flips the scenario
+  to mortar 4 / cannon 1 — the mortar gets its full solo output, but the cannon is now the
+  suppressed side. That tradeoff (a hard swing toward whichever costs more, not an even split)
+  was surfaced to the user before shipping and confirmed as intended over building a
+  proportional-split allocator, which would need real new design and its own tuning pass.
+  `server/Bot.luau` needed no changes — it has no firing/Energy logic of its own, so it
+  inherits the fix automatically through the same `planShots`. Live-testing this fix surfaced
+  two separate, pre-existing bugs (not caused by this change) that made an unrelated match
+  outcome look wrong: the Result screen inferred which side was incapacitated from the
+  points-decided `winner` (backwards whenever the incapacitated side wins on points, per
+  Session 014's own decision) — fixed by having `Rules.checkVictory` return
+  `incapacitatedSide` directly; and the real cause underneath, `State.withPlayer`'s
+  `pairs()`-based merge can never actually clear a field to `nil` (a Lua table literal with a
+  `nil` value simply omits the key), so a player who recovered from a brief early Energy/Supply
+  squeeze stayed flagged incapacitated forever and could still end the match on a stale
+  timestamp long after their economy was healthy — fixed with a new
+  `State.setIncapableSince` (direct field assignment) in place of the generic merge for that
+  one field. `lune run test`: 110/110 (107 at session start). `rojo build` clean. User-
+  confirmed live for the original energy-allocation fix (that's how the confusing incapacitation
+  outcome was found); the two incapacitation fixes have automated coverage but no dedicated
+  live re-confirmation pass yet.
+
 ---
 
 ## Notes
@@ -715,15 +755,3 @@ Free-form project notes.
   exposed as a real per-type config knob rather than base's one-off hardcoded
   `NUM_BASES`/ready-gate special case). Not needed by anything built so far; no plan entry
   yet. Revisit if/when a specific weapon or structure actually needs a cap.
-- **Shared Energy pool favors whichever weapon fires cheapest first (raised Session 021):**
-  `planShots` (`rules.luau`) allocates the shared Energy pool to weapons in build order each
-  tick, so a cheap weapon (cannon, 1 Energy) reliably starves a costlier one (mortar, 3
-  Energy) once both are drawing continuously — confirmed directly: mortar alone gets 4 shots
-  in 60s off one generator, mortar alongside an auto-firing cannon on the same generator gets
-  1. Real for any simultaneous multi-weapon economy, not just auto-fire, though auto-fire
-  (Session 021) makes it far more visible since weapons now draw continuously instead of only
-  when manually re-targeted. The sim already has a mitigation pattern to borrow from
-  (`sim/loadout.luau`'s hold-fire logic, `Kit.chooseTargets`'s `holdFire` parameter in
-  `src/shared/archetypeKit.luau`) but nothing wires it into `planShots` itself for real
-  players or `server/Bot.luau`. No plan entry yet — revisit as a balance/rules-core session
-  (e.g. round-robin or priority-based Energy allocation across weapons sharing a tick).

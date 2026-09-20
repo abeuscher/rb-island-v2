@@ -82,28 +82,58 @@ local function applyWeaponDamage(config, def, opponentStructures, impactCell)
 	return opponentStructures, destroyedStructures, events, hitPoints
 end
 
--- Decides which of `weapons` (one player's own, as they stood at the start of this
--- tick) fire this tick: off cooldown, targeted into the opponent's territory, in
--- range, and affordable. Resolved purely from the owner's own state and the board
--- -- shot geometry never depends on the opponent's structures, only the damage step
--- does -- so this can run for both players against the same pre-tick snapshot
--- without either side's fire affected by the other's, including a weapon that is
--- itself destroyed this tick still getting its shot off.
-local function planShots(config, board, owner, weapons, resources, now)
-	local firings = {}
+-- Every weapon that would fire this tick if Energy allowed it: off cooldown,
+-- targeted into the opponent's territory, and in range. Sorted costliest
+-- first (stable on ties) so a cheaper weapon competing for the same firing
+-- slot never displaces a costlier one within a tier.
+local function fireCandidates(config, board, owner, weapons, now)
+	local candidates = {}
 	for _, weapon in ipairs(weapons) do
 		local def = config.STRUCTURES[weapon.typeId]
 		if def.fire_mode and not weapon.underConstruction and weapon.target and now >= (weapon.nextFireAt or 0) then
 			local target = weapon.target
 			if Board.ownerOf(board, target.x, target.y) == opponentOf(owner) then
-				local cost = { energy = def.energy_cost }
-				if Economy.canAfford(resources, cost) then
-					local shot = Flight.resolveShot(board, def, weapon.x, weapon.y, target.x, target.y)
-					if shot.inRange then
-						resources = Economy.spend(resources, cost)
-						table.insert(firings, { def = def, shot = shot, owner = owner, origin = { x = weapon.x, y = weapon.y }, target = target })
-					end
+				local shot = Flight.resolveShot(board, def, weapon.x, weapon.y, target.x, target.y)
+				if shot.inRange then
+					table.insert(candidates, { weapon = weapon, def = def, target = target, shot = shot })
 				end
+			end
+		end
+	end
+	table.sort(candidates, function(a, b)
+		return a.def.energy_cost > b.def.energy_cost
+	end)
+	return candidates
+end
+
+-- Decides which of `weapons` (one player's own, as they stood at the start of this
+-- tick) fire this tick. Resolved purely from the owner's own state and the board
+-- -- shot geometry never depends on the opponent's structures, only the damage step
+-- does -- so this can run for both players against the same pre-tick snapshot
+-- without either side's fire affected by the other's, including a weapon that is
+-- itself destroyed this tick still getting its shot off.
+--
+-- Only the costliest tier among this tick's fire candidates gets to spend the
+-- shared Energy pool at all -- a cheaper weapon holds fire entirely whenever a
+-- costlier one also wants to shoot, rather than just being checked after it
+-- (plain priority order still let a cheap weapon nibble the pool down a
+-- fraction at a time every tick, so it never sat still long enough for the
+-- costlier weapon's own threshold to accumulate; measured directly, §21
+-- finding). Same stand-down idea sim/loadout.luau already uses for
+-- archetypes, generalized here from a declared category table to a direct
+-- Energy-cost comparison over the real per-tick candidate set.
+local function planShots(config, board, owner, weapons, resources, now)
+	local firings = {}
+	local candidates = fireCandidates(config, board, owner, weapons, now)
+	local highestCost = candidates[1] and candidates[1].def.energy_cost
+
+	for _, candidate in ipairs(candidates) do
+		if candidate.def.energy_cost == highestCost then
+			local cost = { energy = candidate.def.energy_cost }
+			if Economy.canAfford(resources, cost) then
+				resources = Economy.spend(resources, cost)
+				local weapon = candidate.weapon
+				table.insert(firings, { def = candidate.def, shot = candidate.shot, owner = owner, origin = { x = weapon.x, y = weapon.y }, target = candidate.target })
 			end
 		end
 	end
@@ -362,8 +392,12 @@ function Rules.checkVictory(config, state)
 		-- Decided on points like every other non-elimination ending, not an
 		-- automatic win for the other side -- a player can still be ahead on
 		-- score (destruction/standing/reveal/hit) despite being the one who ran
-		-- out of Energy, and that should still win them the match.
-		return { condition = "incapacitation", winner = decideByPoints(config, state) }
+		-- out of Energy, and that should still win them the match. `winner` alone
+		-- can't tell the Result screen which side this actually happened to
+		-- (the incapacitated side can be the one who wins on points), so
+		-- `incapacitatedSide` carries that separately.
+		local incapacitatedSide = (incapA and incapB) and "both" or (incapA and "A" or "B")
+		return { condition = "incapacitation", winner = decideByPoints(config, state), incapacitatedSide = incapacitatedSide }
 	end
 
 	if state.elapsed >= config.MATCH_SECONDS then
@@ -485,7 +519,7 @@ function Rules.tick(config, state)
 		local player = newState.players[owner]
 		local incap = isIncapableNow(config, player.structures, player.resources) and isUnrecoverable(config, player.structures, player.resources)
 		local since = incap and (player.incapableSince or now) or nil
-		newState = State.withPlayer(newState, owner, { incapableSince = since })
+		newState = State.setIncapableSince(newState, owner, since)
 	end
 
 	local victory = Rules.checkVictory(config, newState)

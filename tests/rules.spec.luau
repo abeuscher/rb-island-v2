@@ -115,6 +115,7 @@ t.test("incapacitation: the grace window must fully expire before it can end the
 	t.expectTrue(victory3 ~= nil)
 	t.expectEqual(victory3.condition, "incapacitation")
 	t.expectEqual(victory3.winner, "A")
+	t.expectEqual(victory3.incapacitatedSide, "B")
 end)
 
 t.test("incapacitation is decided on points, not an automatic win for the other side", function()
@@ -129,6 +130,62 @@ t.test("incapacitation is decided on points, not an automatic win for the other 
 	local victory = Rules.checkVictory(config, state)
 	t.expectEqual(victory.condition, "incapacitation")
 	t.expectEqual(victory.winner, "B")
+	-- The real bug this guards against: the Result screen used to infer who was
+	-- incapacitated from `winner` alone, which is backwards exactly here -- B
+	-- won on points despite being the incapacitated side, so a naive
+	-- winner-equals-owner check would tell B's own screen "Opponent
+	-- incapacitated" instead of "You were incapacitated."
+	t.expectEqual(victory.incapacitatedSide, "B")
+end)
+
+t.test("both sides incapacitated at once reports incapacitatedSide as \"both\"", function()
+	local state = State.new(config)
+	state = State.withPlayer(state, "A", { structures = { withBase(6, 7) }, incapableSince = 0 })
+	state = State.withPlayer(state, "B", { structures = { withBase(24, 7) }, incapableSince = 0 })
+	state.elapsed = config.INCAPACITATION_GRACE_SECONDS
+
+	local victory = Rules.checkVictory(config, state)
+	t.expectEqual(victory.condition, "incapacitation")
+	t.expectEqual(victory.incapacitatedSide, "both")
+end)
+
+t.test("Rules.tick clears incapableSince once a player actually recovers, instead of it sticking forever", function()
+	-- A real bug, found live: State.withPlayer merges fields with `pairs`,
+	-- which can never see a `nil` value in a plain table literal --
+	-- `{ incapableSince = nil }` simply omits the key -- so the old
+	-- withPlayer-based clear was a silent no-op. A player who was briefly
+	-- incapable early on (no generator, no affordable weapon) but fully
+	-- recovered stayed flagged forever and could still lose (or win) on a
+	-- stale "incapacitation" long after their economy was healthy again.
+	local incapConfig = table.clone(config)
+	incapConfig.SUPPLY_PER_SECOND = 0
+	incapConfig.STARTING_SUPPLY = 0
+	incapConfig.INCAPACITATION_GRACE_SECONDS = 4 * config.TICK_SECONDS
+
+	local state = State.new(incapConfig)
+	state = State.withPlayer(state, "A", {
+		structures = { withBase(6, 7), { typeId = "cannon", x = 6, y = 9, hp = config.STRUCTURES.cannon.hp, underConstruction = false } },
+	})
+	state = State.withPlayer(state, "B", { structures = { withBase(24, 7) } })
+
+	local afterTick1 = advanceTicks(incapConfig, state, 1)
+	t.expectTrue(afterTick1.players.B.incapableSince ~= nil)
+
+	-- B recovers well before the grace window expires -- Supply arrives (the
+	-- mechanism doesn't matter here) and B builds a generator.
+	local recovering = State.withPlayer(afterTick1, "B", { resources = { supply = 100, energy = afterTick1.players.B.resources.energy } })
+	local afterBuild = Rules.applyCommand(incapConfig, recovering, "B", { type = "place", typeId = "generator", x = 24, y = 10 })
+	t.expectEqual(#afterBuild.players.B.structures, 2)
+
+	-- The next tick re-evaluates incapableSince with the generator now live.
+	local afterTick2 = advanceTicks(incapConfig, afterBuild, 1)
+	t.expectEqual(afterTick2.players.B.incapableSince, nil)
+
+	-- Advance well past the original grace window: with the stale-timestamp
+	-- bug, B would still end the match on a false incapacitation here despite
+	-- having fully recovered several ticks ago.
+	local _, victory = advanceTicks(incapConfig, afterTick2, 10)
+	t.expectEqual(victory, nil)
 end)
 
 t.test("Rules.tick fires an off-cooldown weapon automatically once its target and construction are set, and tracks fired/hit/blocked shots", function()
@@ -268,6 +325,58 @@ t.test("a full scripted match with autoFire on: target once, let it fire on its 
 	t.expectEqual(victory.winner, "A")
 	t.expectEqual(#current.players.B.structures, 0)
 	t.expectEqual(#current.players.A.structures, 2) -- base + cannon, both untouched
+end)
+
+t.test("planShots: a costlier weapon no longer starves once a cheaper one is also drawing from the same Energy pool", function()
+	-- Session 021's finding, measured directly with the real cannon/mortar costs
+	-- and cooldowns (fastConfig's cooldown shortcuts don't apply here -- they'd
+	-- change cannon's cooldown relative to mortar's and mask the real dynamic).
+	-- Only BUILD_SECONDS is shortened, to skip construction wait, and the base's
+	-- hp is raised so 60s of hits never ends the match early -- neither changes
+	-- the Energy economy this test is exercising.
+	local cfg = table.clone(config)
+	cfg.STRUCTURES = table.clone(config.STRUCTURES)
+	cfg.STRUCTURES.base = table.clone(config.STRUCTURES.base)
+	cfg.STRUCTURES.base.hp = 1000000
+	cfg.BUILD_SECONDS = cfg.TICK_SECONDS
+
+	local state = State.new(cfg)
+	state.elapsed = cfg.STRUCTURES.mortar.unlock_time
+	state = State.withPlayer(state, "A", {
+		structures = {
+			withBase(6, 7),
+			{ typeId = "generator", x = 6, y = 9, hp = cfg.STRUCTURES.generator.hp, underConstruction = false },
+		},
+		resources = { supply = 100, energy = cfg.STARTING_ENERGY },
+	})
+	state = State.withPlayer(state, "B", { structures = { withBase(24, 10) } })
+
+	local afterCannon = Rules.applyCommand(cfg, state, "A", { type = "place", typeId = "cannon", x = 17, y = 9 })
+	local afterMortar = Rules.applyCommand(cfg, afterCannon, "A", { type = "place", typeId = "mortar", x = 17, y = 10 })
+	local built = advanceTicks(cfg, afterMortar, 1)
+
+	local afterCannonTarget = Rules.applyCommand(cfg, built, "A", { type = "target", x = 17, y = 9, targetX = 24, targetY = 10 })
+	local afterMortarTarget = Rules.applyCommand(cfg, afterCannonTarget, "A", { type = "target", x = 17, y = 10, targetX = 24, targetY = 10 })
+	local afterCannonAuto = Rules.applyCommand(cfg, afterMortarTarget, "A", { type = "autoFire", x = 17, y = 9, enabled = true })
+	local current = Rules.applyCommand(cfg, afterCannonAuto, "A", { type = "autoFire", x = 17, y = 10, enabled = true })
+
+	-- 60s of continuous auto-fire from both, same as Session 021's measurement.
+	local mortarShots = 0
+	for _ = 1, 60 / cfg.TICK_SECONDS do
+		local newState, _, _, resolution = Rules.tick(cfg, current)
+		current = newState
+		for _, shot in ipairs(resolution.shotsA) do
+			if shot.def.id == "mortar" then
+				mortarShots += 1
+			end
+		end
+	end
+
+	-- Session 021 measured the bug at 1 shot here (vs. 4 with no cannon
+	-- competing for the pool at all) -- this only needs to confirm the mortar
+	-- is no longer starved down to that, not pin an exact shot count to a
+	-- balance number this session isn't meant to retune.
+	t.expectTrue(mortarShots > 1)
 end)
 
 t.test("the missile is arc fire (unblockable by terrain) with no splash: only its impact cell takes damage", function()
